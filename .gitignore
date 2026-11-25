@@ -1,0 +1,9 @@
+*.apk
+*.jks
+*.keystore
+*.jar
+*.log
+*.bak
+.DS_Store
+Thumbs.db
+__pycache__/
