@@ -1,0 +1,768 @@
+package com.zsplit.fb;
+
+import android.content.res.Configuration;
+import android.graphics.Canvas;
+import android.graphics.ColorFilter;
+import android.graphics.LinearGradient;
+import android.graphics.Outline;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PixelFormat;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.RenderEffect;
+import android.graphics.RenderNode;
+import android.graphics.RuntimeShader;
+import android.graphics.Shader;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.RippleDrawable;
+import android.os.Build;
+import android.os.SystemClock;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
+import android.view.ViewParent;
+import android.widget.LinearLayout;
+import java.util.WeakHashMap;
+
+final class FGlass extends Drawable {
+    private static final String SHADER_SRC =
+            "uniform shader content;\n" +
+            "uniform float2 size;\n" +
+            "uniform float radius;\n" +
+            "uniform float edge;\n" +
+            "uniform float strength;\n" +
+            "uniform float mag;\n" +
+            "uniform float pad;\n" +
+            "float sd(float2 p, float2 b, float r){ float2 q=abs(p)-b+float2(r); return length(max(q,float2(0.0)))+min(max(q.x,q.y),0.0)-r; }\n" +
+            "half4 main(float2 xy){\n" +
+            " float2 c=size*0.5;\n" +
+            " float2 p=xy-float2(pad)-c;\n" +
+            " float d=sd(p,c,radius);\n" +
+            " if(d>0.0) return content.eval(xy);\n" +
+            " float2 g=float2(sd(p+float2(1.0,0.0),c,radius)-sd(p-float2(1.0,0.0),c,radius), sd(p+float2(0.0,1.0),c,radius)-sd(p-float2(0.0,1.0),c,radius));\n" +
+            " float gl=length(g);\n" +
+            " float2 n=gl>0.0001 ? g/gl : float2(0.0);\n" +
+            " float k=clamp(1.0+d/edge,0.0,1.0);\n" +
+            " k=k*k*k;\n" +
+            " float2 base=float2(pad)+c+p/mag;\n" +
+            " float o=k*strength;\n" +
+            " half4 r=content.eval(base+n*o);\n" +
+            " half4 gg=content.eval(base+n*o*1.18);\n" +
+            " half4 b=content.eval(base+n*o*1.36);\n" +
+            " return half4(r.r,gg.g,b.b,gg.a);\n" +
+            "}";
+
+    private static final String BAR_SHADER_SRC =
+            "uniform shader content;\n" +
+            "uniform float2 size;\n" +
+            "uniform float radius;\n" +
+            "uniform float edge;\n" +
+            "uniform float strength;\n" +
+            "uniform float mag;\n" +
+            "uniform float pad;\n" +
+            "float sd(float2 p, float2 b, float r){ float2 q=abs(p)-b+float2(r); return length(max(q,float2(0.0)))+min(max(q.x,q.y),0.0)-r; }\n" +
+            "half4 main(float2 xy){\n" +
+            " float2 c=size*0.5;\n" +
+            " float2 p=xy-float2(pad)-c;\n" +
+            " float d=sd(p,c,radius);\n" +
+            " if(d>0.0) return content.eval(xy);\n" +
+            " float2 g=float2(sd(p+float2(1.0,0.0),c,radius)-sd(p-float2(1.0,0.0),c,radius), sd(p+float2(0.0,1.0),c,radius)-sd(p-float2(0.0,1.0),c,radius));\n" +
+            " float gl=length(g);\n" +
+            " float2 n=gl>0.0001 ? g/gl : float2(0.0);\n" +
+            " float k=clamp(1.0+d/edge,0.0,1.0);\n" +
+            " k=k*k*k;\n" +
+            " float2 base=float2(pad)+c+p/mag;\n" +
+            " float o=k*strength;\n" +
+            " half4 r=content.eval(base+n*o);\n" +
+            " half4 gg=content.eval(base+n*o*1.04);\n" +
+            " half4 b=content.eval(base+n*o*1.08);\n" +
+            " return half4(r.r,gg.g,b.b,gg.a);\n" +
+            "}";
+
+    private static final WeakHashMap<View, FDrag> sDragMap = new WeakHashMap<>();
+    static final ViewOutlineProvider sPillOutline = new ViewOutlineProvider() {
+        @Override
+        public void getOutline(View view, Outline outline) {
+            int w = view.getWidth();
+            int h = view.getHeight();
+            if (w > 0 && h > 0) {
+                float r = Math.min(w, h) * 0.5f;
+                outline.setRoundRect(0, 0, w, h, r);
+            }
+        }
+    };
+
+    final LinearLayout host;
+    View backdrop;
+    float cur = Float.NaN;
+    float drag = Float.NaN;
+    float vel = 0f;
+    float hold = Float.NaN;
+    long holdT = 0L;
+    boolean lens = false;
+    float lensA = 0f;
+    boolean capturing = false;
+    boolean forceDark = false;
+    private boolean scrollHooked = false;
+    private long lastTickMs = 0L;
+
+    final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    final RectF rect = new RectF();
+    private final RectF barRect = new RectF();
+    private Path path;
+    private Path barPath;
+    private RenderNode node;
+    private RenderNode barBlurNode;
+    private RuntimeShader rs;
+    private RuntimeShader barRs;
+    private boolean vivoActive;
+    private int vivoStyle = -1;
+    private float vivoRadius = -1f;
+    private static boolean sVivoProbed;
+    private static java.lang.reflect.Method sSetMaterial;
+    private static java.lang.reflect.Method sSetCornerRadius;
+    private static java.lang.reflect.Method sSetForceUpdateBg;
+    private static java.lang.reflect.Method sSetDamageHwLayer;
+
+    private static void probeVivo() {
+        if (sVivoProbed) return;
+        sVivoProbed = true;
+        try {
+            sSetMaterial = View.class.getMethod("setMaterial", int.class, int.class);
+            sSetCornerRadius = View.class.getMethod("setMaterialCornerRadius", float.class);
+            try {
+                sSetForceUpdateBg = View.class.getMethod("setMaterialForceUpdateBg", boolean.class);
+            } catch (Throwable ignored) {}
+            try {
+                sSetDamageHwLayer = View.class.getMethod("setMaterialDamageHardwareLayer", boolean.class);
+            } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            android.util.Log.i("FGlass", "Vivo native glass unavailable: " + t);
+            sSetMaterial = null;
+        }
+    }
+
+    private boolean ensureVivoGlass(float r, boolean dark) {
+        probeVivo();
+        if (sSetMaterial == null) return false;
+        int wantStyle = dark ? 411 : 409;
+        if (vivoActive && vivoStyle == wantStyle && Math.abs(vivoRadius - r) < 1f) {
+            return true;
+        }
+        try {
+            Object res = sSetMaterial.invoke(host, wantStyle, 1);
+            boolean ok = (res instanceof Boolean) && ((Boolean) res).booleanValue();
+            if (ok) {
+                if (sSetCornerRadius != null) sSetCornerRadius.invoke(host, r);
+                if (sSetForceUpdateBg != null) sSetForceUpdateBg.invoke(host, Boolean.FALSE);
+                if (sSetDamageHwLayer != null) sSetDamageHwLayer.invoke(host, Boolean.TRUE);
+                vivoActive = true;
+                vivoStyle = wantStyle;
+                vivoRadius = r;
+                android.util.Log.i("FGlass", "Vivo native Liquid Glass ENABLED style=" + wantStyle + " r=" + r);
+                return true;
+            } else {
+                android.util.Log.i("FGlass", "Vivo setMaterial returned false for style=" + wantStyle);
+            }
+        } catch (Throwable t) {
+            android.util.Log.i("FGlass", "Vivo setMaterial error: " + t);
+            sSetMaterial = null;
+        }
+        vivoActive = false;
+        return false;
+    }
+
+    FGlass(LinearLayout host) {
+        this.host = host;
+    }
+
+    static FGlass attach(LinearLayout tabBar, View pager) {
+        Drawable bg = tabBar.getBackground();
+        FGlass glass;
+        if (!(bg instanceof FGlass)) {
+            glass = new FGlass(tabBar);
+            tabBar.setWillNotDraw(false);
+            tabBar.setBackground(glass);
+            tabBar.setForeground(new FFore(glass));
+            ViewParent p = tabBar.getParent();
+            for (int i = 0; i < 4 && p instanceof ViewGroup; i++) {
+                ViewGroup vg = (ViewGroup) p;
+                vg.setClipChildren(false);
+                vg.setClipToPadding(false);
+                p = vg.getParent();
+            }
+        } else {
+            glass = (FGlass) bg;
+        }
+        glass.backdrop = pager;
+
+        float d = tabBar.getResources().getDisplayMetrics().density;
+        if (tabBar.getOutlineProvider() != sPillOutline) {
+            tabBar.setOutlineProvider(sPillOutline);
+            tabBar.invalidateOutline();
+        }
+        float wantElev = glass.isVertical() ? (5f * d) : (8f * d);
+        if (tabBar.getElevation() != wantElev) {
+            tabBar.setElevation(wantElev);
+        }
+
+        // Strip Facebook's square gray press/selection backgrounds & attach drag listeners to tab items
+        int n = tabBar.getChildCount();
+        for (int i = 0; i < n; i++) {
+            View child = tabBar.getChildAt(i);
+            if (child.getBackground() != null) child.setBackground(null);
+            if (child.getForeground() != null) child.setForeground(null);
+            noRipple(child);
+            if (!sDragMap.containsKey(child)) {
+                FDrag drag = new FDrag(glass);
+                child.setOnTouchListener(drag);
+                sDragMap.put(child, drag);
+            }
+        }
+        glass.tick();
+        return glass;
+    }
+
+    private static void noRipple(View v) {
+        Drawable bg = v.getBackground();
+        if (bg instanceof RippleDrawable || bg instanceof android.graphics.drawable.StateListDrawable) {
+            v.setBackground(null);
+        }
+        Drawable fg = v.getForeground();
+        if (fg instanceof RippleDrawable || fg instanceof android.graphics.drawable.StateListDrawable) {
+            v.setForeground(null);
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) v;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                noRipple(vg.getChildAt(i));
+            }
+        }
+    }
+
+    @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+    @Override public void setAlpha(int alpha) {}
+    @Override public void setColorFilter(ColorFilter cf) {}
+
+    private static boolean isDark(View v) {
+        return (v.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    private boolean isDarkMode() {
+        return forceDark || isDark(host);
+    }
+
+    boolean isVertical() {
+        return host.getOrientation() == LinearLayout.VERTICAL;
+    }
+
+    int visCount() {
+        int c = 0;
+        for (int i = 0; i < host.getChildCount(); i++) {
+            if (host.getChildAt(i).getVisibility() == View.VISIBLE) c++;
+        }
+        return c;
+    }
+
+    View visKid(int idx) {
+        int c = 0;
+        for (int i = 0; i < host.getChildCount(); i++) {
+            View v = host.getChildAt(i);
+            if (v.getVisibility() == View.VISIBLE) {
+                if (c == idx) return v;
+                c++;
+            }
+        }
+        return null;
+    }
+
+    float centerAxis(View v) {
+        return isVertical()
+                ? (v.getTop() + v.getHeight() * 0.5f)
+                : (v.getLeft() + v.getWidth() * 0.5f);
+    }
+
+    float sizeAxis(View v) {
+        return isVertical() ? v.getHeight() : v.getWidth();
+    }
+
+    float posFromCoord(float coord) {
+        int n = visCount();
+        for (int i = 0; i < n - 1; i++) {
+            View a = visKid(i);
+            View b = visKid(i + 1);
+            if (a == null || b == null) continue;
+            float ac = centerAxis(a);
+            float bc = centerAxis(b);
+            if (coord <= bc) {
+                float t = (bc != ac) ? (coord - ac) / (bc - ac) : 0f;
+                if (t < 0f) t = 0f;
+                return i + t;
+            }
+        }
+        return Math.max(0, n - 1);
+    }
+
+    float activePos() {
+        int n = visCount();
+        for (int i = 0; i < n; i++) {
+            View v = visKid(i);
+            if (v != null && v.isSelected()) return (float) i;
+        }
+        return Float.NaN;
+    }
+
+    void tick() {
+        if (!scrollHooked && backdrop != null) {
+            scrollHooked = true;
+            try {
+                backdrop.getViewTreeObserver().addOnScrollChangedListener(new android.view.ViewTreeObserver.OnScrollChangedListener() {
+                    @Override
+                    public void onScrollChanged() {
+                        if (host != null && !vivoActive) host.invalidate();
+                    }
+                });
+            } catch (Throwable ignored) {
+            }
+        }
+        long now = SystemClock.uptimeMillis();
+        float dt = (lastTickMs > 0L) ? Math.min(32f, Math.max(4f, now - lastTickMs)) : 16.67f;
+        lastTickMs = now;
+        float step = dt / 16.67f;
+
+        tickSpring(step);
+        float targetA = lens ? 1f : 0f;
+        float diff = targetA - lensA;
+        if (Math.abs(diff) < 0.01f) {
+            if (lensA != targetA) {
+                lensA = targetA;
+                host.invalidate();
+            }
+        } else {
+            lensA += diff * (1f - (float) Math.pow(0.88, step));
+            host.invalidate();
+        }
+        boolean wantClip = lensA < 0.05f;
+        if (host.getClipToOutline() != wantClip) {
+            host.setClipToOutline(wantClip);
+            host.invalidateOutline();
+        }
+    }
+
+    private void tickSpring(float step) {
+        float target = activePos();
+        if (!Float.isNaN(hold)) {
+            if (target == hold || SystemClock.uptimeMillis() > holdT) {
+                hold = Float.NaN;
+            } else {
+                target = hold;
+            }
+        }
+        if (!Float.isNaN(drag)) {
+            vel = Float.isNaN(cur) ? 0f : (drag - cur);
+            cur = drag;
+            lens = true;
+            host.invalidate();
+            return;
+        }
+        if (Float.isNaN(target)) return;
+        if (Float.isNaN(cur)) {
+            cur = target;
+            vel = 0f;
+            lens = false;
+            host.invalidate();
+            return;
+        }
+        // Frame-rate independent lush liquid spring (smooth & deliberate at 60Hz and 120Hz)
+        float damp = (float) Math.pow(0.84, step);
+        float nv = vel * damp + (target - cur) * (0.026f * step);
+        float np = cur + nv * step;
+        if (Math.abs(target - np) < 0.002f && Math.abs(nv) < 0.002f) {
+            if (target == cur && vel == 0f) {
+                if (lens) {
+                    lens = false;
+                    host.invalidate();
+                }
+                return;
+            }
+            np = target;
+            nv = 0f;
+        }
+        cur = np;
+        vel = nv;
+        lens = !Float.isNaN(hold) || Math.abs(nv) > 0.035f || Math.abs(target - np) > 0.12f;
+        host.invalidate();
+    }
+
+    private static void grad(Paint p, float y0, float y1, int c0, int c1) {
+        p.setShader(new LinearGradient(0f, y0, 0f, y1, c0, c1, Shader.TileMode.CLAMP));
+    }
+
+    @Override
+    public void draw(Canvas canvas) {
+        if (capturing) return;
+        try {
+            float d = host.getResources().getDisplayMetrics().density;
+            boolean dark = isDarkMode();
+            Rect b = getBounds();
+            float w = b.width();
+            float h = b.height();
+            if (w <= 0 || h <= 0) return;
+
+            barRect.set(0f, 0f, w, h);
+            float r = Math.min(w, h) * 0.5f;
+            if (ensureVivoGlass(r, dark)) {
+                // Balanced translucent glass tint so dock stays crisp & legible even over playing SurfaceView videos
+                paint.setShader(null);
+                paint.clearShadowLayer();
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(dark ? 0x7018191C : 0x62FFFFFF);
+                canvas.drawRoundRect(barRect, r, r, paint);
+                return;
+            }
+            if (barPath == null) barPath = new Path();
+            barPath.reset();
+            barPath.addRoundRect(barRect, r, r, Path.Direction.CW);
+
+            // Real-time iOS 26/27 Liquid Glass outer capsule: Blur + AGSL Refraction of feed behind dock
+            boolean blurred = false;
+            if (backdrop != null && Build.VERSION.SDK_INT >= 31 && canvas.isHardwareAccelerated()) {
+                try {
+                    if (barBlurNode == null) barBlurNode = new RenderNode("fbarblur");
+                    int pad = (int) (32f * d);
+                    int nw = (int) w + pad * 2;
+                    int nh = (int) h + pad * 2;
+                    if (nw > 0 && nh > 0) {
+                        int[] hLoc = new int[2];
+                        int[] bLoc = new int[2];
+                        host.getLocationOnScreen(hLoc);
+                        backdrop.getLocationOnScreen(bLoc);
+                        float dx = (bLoc[0] - hLoc[0]) + pad - backdrop.getScrollX();
+                        float dy = (bLoc[1] - hLoc[1]) + pad - backdrop.getScrollY();
+
+                        barBlurNode.setPosition(0, 0, nw, nh);
+                        Canvas rc = barBlurNode.beginRecording(nw, nh);
+                        try {
+                            rc.drawColor(dark ? 0xFF101014 : 0xFFF5F6FA);
+                            rc.translate(dx, dy);
+                            backdrop.draw(rc);
+                        } finally {
+                            barBlurNode.endRecording();
+                        }
+
+                        // True iOS 26/27 Liquid Glass: crystal-clear optical glass (4dp blur + clean edge meniscus refraction)
+                        float blurR = 4.0f * d;
+                        RenderEffect blurEff = RenderEffect.createBlurEffect(blurR, blurR, Shader.TileMode.CLAMP);
+                        if (Build.VERSION.SDK_INT >= 33) {
+                            if (barRs == null) barRs = new RuntimeShader(BAR_SHADER_SRC);
+                            barRs.setFloatUniform("size", w, h);
+                            barRs.setFloatUniform("radius", r);
+                            barRs.setFloatUniform("pad", pad);
+                            barRs.setFloatUniform("edge", Math.min(14f * d, r));
+                            barRs.setFloatUniform("strength", 10f * d);
+                            barRs.setFloatUniform("mag", 1.04f);
+                            RenderEffect refEff = RenderEffect.createRuntimeShaderEffect(barRs, "content");
+                            barBlurNode.setRenderEffect(RenderEffect.createChainEffect(refEff, blurEff));
+                        } else {
+                            barBlurNode.setRenderEffect(blurEff);
+                        }
+
+                        canvas.save();
+                        canvas.clipPath(barPath);
+                        canvas.translate(-pad, -pad);
+                        canvas.drawRenderNode(barBlurNode);
+                        canvas.restore();
+                        blurred = true;
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+
+            paint.setShader(null);
+            paint.clearShadowLayer();
+            paint.setStyle(Paint.Style.FILL);
+            if (blurred) {
+                paint.setColor(dark ? 0x33141418 : 0x28FFFFFF);
+            } else {
+                paint.setColor(dark ? 0xCC202024 : 0xCCFFFFFF);
+            }
+            canvas.drawRoundRect(barRect, r, r, paint);
+
+            // Crisp liquid top glaze + subtle bottom bounce
+            grad(paint, 0f, h * 0.42f, dark ? 0x26FFFFFF : 0x55FFFFFF, 0x00FFFFFF);
+            canvas.drawRoundRect(barRect, r, r, paint);
+            grad(paint, h * 0.78f, h, 0x00FFFFFF, dark ? 0x18FFFFFF : 0x28FFFFFF);
+            canvas.drawRoundRect(barRect, r, r, paint);
+            paint.setShader(null);
+
+            // Diagonal Apple specular catchlight rim
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(1.0f * d);
+            paint.setColor(dark ? 0x33FFFFFF : 0x1F000000);
+            float half = 0.5f * d;
+            barRect.inset(half, half);
+            canvas.drawRoundRect(barRect, r, r, paint);
+
+            paint.setStrokeWidth(1.5f * d);
+            barRect.inset(1.0f * d, 1.0f * d);
+            paint.setShader(new LinearGradient(
+                    0f, 0f, w * 0.4f, h,
+                    dark ? new int[]{0x99FFFFFF, 0x1AFFFFFF, 0x55FFFFFF}
+                         : new int[]{0xFFFFFFFF, 0x38FFFFFF, 0xCCFFFFFF},
+                    new float[]{0f, 0.52f, 1f},
+                    Shader.TileMode.CLAMP));
+            canvas.drawRoundRect(barRect, Math.max(0f, r - d), Math.max(0f, r - d), paint);
+            paint.setShader(null);
+            paint.setStyle(Paint.Style.FILL);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private float geom(float d) {
+        int n = visCount();
+        if (n <= 0 || Float.isNaN(cur)) return -1f;
+
+        float pos = Math.max(0f, Math.min(cur, n - 1));
+        int i0 = Math.max(0, Math.min((int) pos, n - 2));
+        float f = pos - i0;
+        View v0 = visKid(i0);
+        View v1 = visKid(Math.min(i0 + 1, n - 1));
+        if (v0 == null || v1 == null) return -1f;
+
+        float c0 = centerAxis(v0);
+        float c1 = centerAxis(v1);
+        float center = c0 + (c1 - c0) * f;
+        float s0 = sizeAxis(v0);
+        float s1 = sizeAxis(v1);
+        float cell = s0 + (s1 - s0) * f;
+
+        float w = getBounds().width();
+        float h = getBounds().height();
+        float pad = 4f * d;
+        float stretch = 1f + Math.min(Math.abs(vel) * 6f, 0.22f);
+
+        if (isVertical()) {
+            float restH = cell - 2f * pad;
+            float lensH = cell * 1.14f * stretch;
+            float pillH = restH + (lensH - restH) * lensA;
+            float pillW = w - (2f * pad - 6f * d * lensA);
+            float left = (w - pillW) * 0.5f;
+            float top = center - pillH * 0.5f;
+            float bot = center + pillH * 0.5f;
+            if (lensA < 0.05f) {
+                if (top < pad) { top = pad; bot = Math.min(h - pad, top + pillH); }
+                else if (bot > h - pad) { bot = h - pad; top = Math.max(pad, bot - pillH); }
+            }
+            rect.set(left, top, left + pillW, bot);
+            return Math.min(pillW, bot - top) * 0.5f;
+        } else {
+            float restW = cell - 2f * pad;
+            float lensW = cell * 1.42f * stretch;
+            float pillW = restW + (lensW - restW) * lensA;
+            float pillH = h - (2f * pad - 16f * d * lensA);
+            float top = (h - pillH) * 0.5f;
+            float left = center - pillW * 0.5f;
+            float right = center + pillW * 0.5f;
+            if (lensA < 0.05f) {
+                if (left < pad) { left = pad; right = Math.min(w - pad, left + pillW); }
+                else if (right > w - pad) { right = w - pad; left = Math.max(pad, right - pillW); }
+            }
+            rect.set(left, top, right, top + pillH);
+            return Math.min(right - left, pillH) * 0.5f;
+        }
+    }
+
+    void fore(Canvas canvas) {
+        if (capturing) return;
+        try {
+            float d = host.getResources().getDisplayMetrics().density;
+            boolean dark = isDarkMode();
+            float r = geom(d);
+            if (r < 0f) return;
+
+            if (path == null) path = new Path();
+            path.reset();
+            path.addRoundRect(rect, r, r, Path.Direction.CW);
+
+            paint.setShader(null);
+            paint.setStyle(Paint.Style.FILL);
+
+            // Outer diffused shadow
+            canvas.save();
+            canvas.clipOutPath(path);
+            paint.setColor(dark ? 0xFF202026 : 0xFFFFFFFF);
+            paint.setAlpha(255);
+            int shadowA = (int) (14f + 38f * lensA);
+            paint.setShadowLayer((8f + 6f * lensA) * d, 0f, (1.5f + 2f * lensA) * d, shadowA << 24);
+            canvas.drawRoundRect(rect, r, r, paint);
+            paint.clearShadowLayer();
+            canvas.restore();
+
+            // Interior clipped to active Liquid Glass pill
+            canvas.saveLayerAlpha(rect, 255);
+            canvas.clipPath(path);
+
+            if (lensA > 0.03f) {
+                int lensBg = dark ? 0xD8222228 : 0xD8F8F9FC;
+                if (!refract(canvas, rect, r, lensBg)) {
+                    canvas.save();
+                    float sc = 1f + 0.14f * lensA;
+                    canvas.scale(sc, sc, rect.centerX(), rect.centerY());
+                    capturing = true;
+                    try { host.draw(canvas); } finally { capturing = false; }
+                    canvas.restore();
+                }
+            }
+
+            paint.setColor(dark ? 0x2EFFFFFF : 0x45FFFFFF);
+            canvas.drawRoundRect(rect, r, r, paint);
+
+            grad(paint, rect.top, rect.centerY(),
+                    dark ? 0x2CFFFFFF : 0x80FFFFFF, 0x00FFFFFF);
+            canvas.drawRoundRect(rect, r, r, paint);
+            paint.setShader(null);
+
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(0.85f * d);
+            paint.setColor(dark ? 0x38FFFFFF : 0x1A000000);
+            canvas.drawRoundRect(rect, r, r, paint);
+
+            float rim = 1.4f * d;
+            paint.setStrokeWidth(rim);
+            rect.inset(rim, rim);
+            float r2 = Math.max(0f, r - rim);
+            paint.setShader(new LinearGradient(
+                    rect.left, rect.top, rect.left + rect.width() * 0.4f, rect.bottom,
+                    dark ? new int[]{0x99FFFFFF, 0x1AFFFFFF, 0x44FFFFFF}
+                         : new int[]{0xFFFFFFFF, 0x33FFFFFF, 0xB8FFFFFF},
+                    new float[]{0f, 0.5f, 1f},
+                    Shader.TileMode.CLAMP));
+            canvas.drawRoundRect(rect, r2, r2, paint);
+
+            paint.setShader(null);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setAlpha(255);
+            canvas.restore();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private boolean refract(Canvas canvas, RectF box, float radius, int bgColor) {
+        try {
+            if (!canvas.isHardwareAccelerated() || Build.VERSION.SDK_INT < 33) return false;
+            if (node == null) node = new RenderNode("flens");
+            if (rs == null) rs = new RuntimeShader(SHADER_SRC);
+
+            float d = host.getResources().getDisplayMetrics().density;
+            float pad = 24f * d;
+            float bw = box.width();
+            float bh = box.height();
+            int nw = (int) (bw + 2f * pad);
+            int nh = (int) (bh + 2f * pad);
+            if (nw <= 0 || nh <= 0) return false;
+
+            node.setPosition(0, 0, nw, nh);
+            Canvas rc = node.beginRecording(nw, nh);
+            try {
+                rc.drawColor(bgColor);
+                rc.translate(pad - box.left, pad - box.top);
+                capturing = true;
+                try { host.draw(rc); } finally { capturing = false; }
+            } finally {
+                node.endRecording();
+            }
+
+            rs.setFloatUniform("size", bw, bh);
+            rs.setFloatUniform("radius", radius);
+            rs.setFloatUniform("pad", pad);
+            rs.setFloatUniform("edge", Math.min((8f + 12f * lensA) * d, radius));
+            rs.setFloatUniform("strength", (2f + 14f * lensA) * d);
+            rs.setFloatUniform("mag", 1f + 0.12f * lensA);
+
+            node.setRenderEffect(RenderEffect.createRuntimeShaderEffect(rs, "content"));
+            canvas.save();
+            canvas.translate(box.left - pad, box.top - pad);
+            canvas.drawRenderNode(node);
+            canvas.restore();
+            return true;
+        } catch (Throwable ignored) {
+            capturing = false;
+            return false;
+        }
+    }
+}
+
+final class FFore extends Drawable {
+    final FGlass g;
+    FFore(FGlass g) { this.g = g; }
+    @Override public void draw(Canvas canvas) { g.fore(canvas); }
+    @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+    @Override public void setAlpha(int alpha) {}
+    @Override public void setColorFilter(ColorFilter cf) {}
+}
+
+final class FDrag implements View.OnTouchListener {
+    private final FGlass g;
+    private float downAxis;
+    private boolean dragging;
+
+    FDrag(FGlass g) { this.g = g; }
+
+    @Override
+    public boolean onTouch(View v, MotionEvent ev) {
+        try {
+            LinearLayout host = g.host;
+            boolean vert = g.isVertical();
+            int act = ev.getActionMasked();
+            float raw = vert ? ev.getRawY() : ev.getRawX();
+            int[] loc = new int[2];
+            host.getLocationOnScreen(loc);
+            float local = raw - (vert ? loc[1] : loc[0]);
+
+            if (act == MotionEvent.ACTION_DOWN) {
+                downAxis = raw;
+                dragging = false;
+                return false;
+            }
+            if (act == MotionEvent.ACTION_MOVE) {
+                if (!dragging) {
+                    float slop = 10f * host.getResources().getDisplayMetrics().density;
+                    if (Math.abs(raw - downAxis) <= slop) return false;
+                    dragging = true;
+                    ViewParent p = host.getParent();
+                    if (p != null) p.requestDisallowInterceptTouchEvent(true);
+                    MotionEvent cancel = MotionEvent.obtain(ev);
+                    cancel.setAction(MotionEvent.ACTION_CANCEL);
+                    v.onTouchEvent(cancel);
+                    cancel.recycle();
+                    v.setPressed(false);
+                }
+                g.drag = g.posFromCoord(local);
+                host.invalidate();
+                return true;
+            }
+            if (dragging) {
+                dragging = false;
+                float last = g.drag;
+                g.drag = Float.NaN;
+                if (act == MotionEvent.ACTION_UP) {
+                    int idx = Math.round(last);
+                    g.hold = idx;
+                    g.holdT = SystemClock.uptimeMillis() + 700L;
+                    int curIdx = Math.round(g.activePos());
+                    if (curIdx != idx) {
+                        View target = g.visKid(idx);
+                        if (target != null) target.performClick();
+                    }
+                }
+                host.invalidate();
+                return true;
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+}

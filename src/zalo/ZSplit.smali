@@ -474,7 +474,6 @@
     const/4 v4, 0x1
     :cond_60
     :goto_60
-    invoke-static {v0, v2, v4, v14}, Lcom/zing/zalo/zsplit/ZSplit;->dlog(Ljava/util/ArrayList;Landroid/view/View;II)V
     const/4 v6, 0x0
     const/4 v7, 0x1
     :goto_62
@@ -514,7 +513,6 @@
     if-nez v11, :cond_98
     invoke-virtual {v12, v9}, Ljava/util/WeakHashMap;->remove(Ljava/lang/Object;)Ljava/lang/Object;
     move-result-object v13
-    if-eqz v13, :cond_a0
     invoke-static {v9, v10, v11}, Lcom/zing/zalo/zsplit/ZSplit;->apply(Landroid/view/View;II)V
     goto :goto_a0
     :cond_98
@@ -960,6 +958,7 @@
     if-ne v0, p0, :a
     return-void
     :a
+    invoke-static {p0, p1}, Lcom/zing/zalo/zsplit/ZGlass;->prePosition(Landroid/view/ViewGroup;Landroid/view/View;)V
     invoke-virtual {p0, p1}, Landroid/view/ViewGroup;->addView(Landroid/view/View;)V
     return-void
 .end method
@@ -971,6 +970,7 @@
     if-ne v0, p0, :a
     return-void
     :a
+    invoke-static {p0, p1}, Lcom/zing/zalo/zsplit/ZGlass;->prePosition(Landroid/view/ViewGroup;Landroid/view/View;)V
     invoke-virtual {p0, p1, p2}, Landroid/view/ViewGroup;->addView(Landroid/view/View;I)V
     return-void
 .end method
@@ -983,6 +983,7 @@
     invoke-virtual {p1, p2}, Landroid/view/View;->setLayoutParams(Landroid/view/ViewGroup$LayoutParams;)V
     return-void
     :a
+    invoke-static {p0, p1, p2}, Lcom/zing/zalo/zsplit/ZGlass;->prePosition(Landroid/view/ViewGroup;Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V
     invoke-virtual {p0, p1, p2}, Landroid/view/ViewGroup;->addView(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V
     return-void
 .end method
