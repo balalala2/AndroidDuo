@@ -428,12 +428,21 @@ final class FGlass extends Drawable {
             barRect.set(0f, 0f, w, h);
             float r = Math.min(w, h) * 0.5f;
             if (ensureVivoGlass(r, dark)) {
-                // Balanced translucent glass tint so dock stays crisp & legible even over playing SurfaceView videos
+                if (host.getElevation() != 0f) host.setElevation(0f);
+                // Balanced translucent glass tint + crisp concentric 1dp rim
                 paint.setShader(null);
                 paint.clearShadowLayer();
                 paint.setStyle(Paint.Style.FILL);
-                paint.setColor(dark ? 0x7018191C : 0x62FFFFFF);
+                paint.setColor(dark ? 0x5818191C : 0x58FFFFFF);
                 canvas.drawRoundRect(barRect, r, r, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(d);
+                paint.setColor(dark ? 0x38FFFFFF : 0x78FFFFFF);
+                float half = 0.5f * d;
+                barRect.inset(half, half);
+                float rRim = Math.max(0f, r - half);
+                canvas.drawRoundRect(barRect, rRim, rRim, paint);
+                paint.setStyle(Paint.Style.FILL);
                 drawRestingActivePill(canvas, d, dark);
                 return;
             }
@@ -584,10 +593,12 @@ final class FGlass extends Drawable {
         float stretch = 1f + Math.min(Math.abs(vel) * 6f, 0.22f);
 
         if (isVertical()) {
-            float restH = cell - 2f * pad;
-            float lensH = cell * 1.42f * stretch;
+            float restW = w - 2f * pad;
+            float restH = Math.max(restW, cell - 2f * pad);
+            float lensW = restW + 16f * d;
+            float lensH = Math.max(lensW * 1.22f, cell * 1.50f) * stretch;
+            float pillW = restW + (lensW - restW) * lensA;
             float pillH = restH + (lensH - restH) * lensA;
-            float pillW = w - (2f * pad - 18f * d * lensA);
             float left = (w - pillW) * 0.5f;
             float top = center - pillH * 0.5f;
             float bot = center + pillH * 0.5f;
@@ -598,10 +609,12 @@ final class FGlass extends Drawable {
             rect.set(left, top, left + pillW, bot);
             return Math.min(pillW, bot - top) * 0.5f;
         } else {
-            float restW = cell - 2f * pad;
-            float lensW = cell * 1.42f * stretch;
+            float restH = h - 2f * pad;
+            float restW = Math.max(restH, cell);
+            float lensH = restH + 16f * d;
+            float lensW = Math.max(lensH * 1.22f, cell * 1.45f) * stretch;
+            float pillH = restH + (lensH - restH) * lensA;
             float pillW = restW + (lensW - restW) * lensA;
-            float pillH = h - (2f * pad - 18f * d * lensA);
             float top = (h - pillH) * 0.5f;
             float left = center - pillW * 0.5f;
             float right = center + pillW * 0.5f;
@@ -651,7 +664,10 @@ final class FGlass extends Drawable {
                     new float[]{0f, 0.5f, 1f},
                     Shader.TileMode.CLAMP));
             paint.setAlpha((int) (255 * lensA));
-            canvas.drawRoundRect(rect, r, r, paint);
+            float inset = 0.55f * d;
+            rect.inset(inset, inset);
+            float rStroke = Math.max(0f, r - inset);
+            canvas.drawRoundRect(rect, rStroke, rStroke, paint);
             paint.setShader(null);
             paint.setStyle(Paint.Style.FILL);
             paint.setAlpha(255);

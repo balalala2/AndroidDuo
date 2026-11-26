@@ -67,7 +67,9 @@ public final class YGlass {
                 }
             } catch (Throwable ignored) {}
         }
-        int ret = (w >= 580) ? 2 : ((w > 0) ? 1 : original);
+        // Always report LARGE_FORM_FACTOR (2) so YouTube server returns responsive grid breakpoints (Lauam):
+        // 2 columns on inner screen (>=580dp) and 1 column on outer screen (<580dp) with ZERO feed reload on fold/unfold.
+        int ret = 2;
         android.util.Log.i("YGlass", "getDynamicFormFactor orig=" + original + " wDp=" + w + " -> " + ret);
         return ret;
     }
@@ -195,7 +197,6 @@ public final class YGlass {
         RuntimeShader rs;
         int cancelStreak = 0;
         int lastWideState = -1;
-        private static long sLastRecreateMs = 0L;
 
         // Smooth tab-to-tab horizontal page carousel transition (snapshot-based, sweeps through intermediate tabs)
         final Bitmap[] snapshots = new Bitmap[6];
@@ -639,9 +640,9 @@ public final class YGlass {
             return chg;
         }
 
-        // On physical fold/unfold crossing 580dp, sLastWidthDp updates immediately so getDynamicFormFactor()
-        // switches 1 <-> 2 (SMALL <-> LARGE). Trigger YouTube's own SwipeRefreshLayout listener so the server
-        // delivers the exact native 2-col inner grid (or 1-col outer feed) with ZERO Activity.recreate()!
+        // Track fold/unfold width crossing 580dp without reloading the feed:
+        // because getDynamicFormFactor() always returns LARGE (2), YouTube's native responsive container (Lauam)
+        // smoothly transitions between 2 columns (inner) and 1 column (outer) client-side while preserving videos & scroll.
         private void checkFoldRefresh() {
             try {
                 if (host.getVisibility() != View.VISIBLE) return;
@@ -658,52 +659,8 @@ public final class YGlass {
                 }
                 if (wideNow != lastWideState) {
                     lastWideState = wideNow;
-                    long now = SystemClock.uptimeMillis();
-                    if (now - sLastRecreateMs < 1200L) return;
-                    sLastRecreateMs = now;
-                    host.postDelayed(new Runnable() {
-                        @Override
-                        public void run() {
-                            triggerSwipeRefresh(host.getRootView());
-                        }
-                    }, 120L);
                 }
             } catch (Throwable ignored) {}
-        }
-
-        private static boolean triggerSwipeRefresh(View v) {
-            if (v == null || !v.isShown()) return false;
-            if (v.getClass().getName().contains("SwipeRefreshLayout")) {
-                try {
-                    Class<?> cls = v.getClass();
-                    while (cls != null && cls != ViewGroup.class) {
-                        for (java.lang.reflect.Field f : cls.getDeclaredFields()) {
-                            Class<?> ft = f.getType();
-                            if (!ft.isInterface()) continue;
-                            Method[] ms = ft.getDeclaredMethods();
-                            if (ms.length == 1 && ms[0].getParameterTypes().length == 0 && ms[0].getReturnType() == void.class) {
-                                f.setAccessible(true);
-                                Object listener = f.get(v);
-                                if (listener != null) {
-                                    ms[0].invoke(listener);
-                                    android.util.Log.i("YGlass", "Triggered SwipeRefreshLayout refresh for wDp=" + sLastWidthDp);
-                                    return true;
-                                }
-                            }
-                        }
-                        cls = cls.getSuperclass();
-                    }
-                } catch (Throwable t) {
-                    android.util.Log.w("YGlass", "triggerSwipeRefresh err: " + t);
-                }
-            }
-            if (v instanceof ViewGroup) {
-                ViewGroup vg = (ViewGroup) v;
-                for (int i = 0; i < vg.getChildCount(); i++) {
-                    if (triggerSwipeRefresh(vg.getChildAt(i))) return true;
-                }
-            }
-            return false;
         }
 
         private void styleContainer() {

@@ -2,9 +2,15 @@ package com.zsplit.fb;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
+import android.view.PixelCopy;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
@@ -12,6 +18,7 @@ import android.view.ViewParent;
 import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager.widget.PagerAdapter;
@@ -23,34 +30,45 @@ public final class FSplit {
     private static final int TAG_BG = 0x7a5f0003;
     private static final int TAG_SURF = 0x7a5f0004;
     private static final int TAG_SCROLL = 0x7a5f0006;
+    private static final int TAG_COVER = 0x7a5f0007;
     private static final int ID_TAB_INDICATOR = 0x7f0a201a;
     private static final int ID_TAB_DIVIDER = 0x7f0a2017;
     private static final int ID_TAB_SLOT = 0x7f0a2019;
     private static final int ID_APPBAR = 0x7f0a0173;
     private static final int ID_HEADER = 0x7f0a212e;
+    private static final int ID_PROFILE_LIST = 0x7f0a2106;
 
     private static WeakReference<View> sHdr;
     private static WeakReference<View> sTabBar;
     private static WeakReference<View> sAppBar;
+    private static WeakReference<Window> sWindow;
+    static WeakReference<ImageView> sCoverIv;
+    static float sCoverScale = 0f;
+    static int sCoverH = 0;
+    private static WeakReference<View> sPager;
     private static WeakReference<ViewGroup> sFeedRv;
     private static WeakReference<View> sLastChild0;
     private static int sLastTop0;
     private static int sPadTick;
     private static int sLastSelTab = -1;
     private static long sLastClipMs = 0L;
+    private static long sLastCoverMs = 0L;
     private static float sDockHideTarget = 0f;
     private static float sDockHideCur = 0f;
     private static long sLastHideMs = 0L;
 
     public static void install(Activity act) {
         try {
-            if (act == null) return;
+            if (act == null || act.isFinishing() || act.isDestroyed()) return;
             Window w = act.getWindow();
             if (w == null) return;
             View decor = w.peekDecorView();
             if (decor == null) return;
             if (decor.getTag(TAG_INSTALLED) != null) return;
             decor.setTag(TAG_INSTALLED, Boolean.TRUE);
+            sCoverIv = null;
+            sCoverScale = 0f;
+            sCoverH = 0;
             decor.getViewTreeObserver().addOnGlobalLayoutListener(new LayoutWatcher(decor, act));
             // Drive smooth spring animations + O(1) outer-screen scroll auto-hide on every frame
             decor.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
@@ -63,6 +81,7 @@ public final class FSplit {
                                 ((FGlass) tabBar.getBackground()).tick();
                             }
                             syncOuterDockHide(tabBar);
+                            syncCoverScale();
                         }
                     } catch (Throwable ignored) {
                     }
@@ -252,10 +271,10 @@ public final class FSplit {
             }
         }
 
-        // Seamless background on pagerParent AND its parent CoordinatorLayout so Dark Mode has zero unpainted border
+        // Seamless background matching Facebook's exact Dark Mode surface (#252728) so there is zero seam behind left rail
         boolean dark = (rail.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
                 == Configuration.UI_MODE_NIGHT_YES;
-        int railBg = (wide && onReels) ? 0xFF000000 : (dark ? 0xFF1C1E21 : 0xFFFFFFFF);
+        int railBg = (wide && onReels) ? 0xFF000000 : (dark ? 0xFF252728 : 0xFFFFFFFF);
         pagerParentFrame.setBackgroundColor(railBg);
         ViewParent grandP = pagerParentFrame.getParent();
         if (grandP instanceof View) {
@@ -271,6 +290,7 @@ public final class FSplit {
         int[] parentLoc = new int[2];
         pagerParentFrame.getLocationInWindow(parentLoc);
         int topMargin = 0;
+        // All tabs except Reels sit below the header (Home too: its composer was clipped when Home skipped this).
         if (!onReels && hdr != null && hdr.getVisibility() == View.VISIBLE) {
             int[] hLoc = new int[2];
             hdr.getLocationInWindow(hLoc);
@@ -322,6 +342,9 @@ public final class FSplit {
         if (!pager.getClipToOutline()) {
             pager.setClipToOutline(true);
         }
+
+        sPager = new WeakReference<>(pager);
+        fixProfileCover(pager);
 
         if (wide) {
             int curSel = -1;
@@ -657,5 +680,253 @@ public final class FSplit {
         for (int i = 0; i < vg.getChildCount(); i++) {
             rebind(vg.getChildAt(i), depth + 1);
         }
+    }
+
+    // Hardware-bitmap-safe PixelCopy scan to eliminate Facebook Bloks' ~76px #A6A6A6 top gray strip on Profile cover
+    private static final class CoverScan implements PixelCopy.OnPixelCopyFinishedListener, Runnable {
+        private final WeakReference<View> pagerRef;
+        private final WeakReference<ImageView> ivRef;
+        private final int w, h, attempt;
+        private final Bitmap bmp;
+
+        CoverScan(View pager, ImageView iv, int w, int h, Bitmap bmp, int attempt) {
+            this.pagerRef = new WeakReference<>(pager);
+            this.ivRef = new WeakReference<>(iv);
+            this.w = w;
+            this.h = h;
+            this.bmp = bmp;
+            this.attempt = attempt;
+        }
+
+        @Override
+        public void onPixelCopyFinished(int copyResult) {
+            try {
+                ImageView iv = ivRef.get();
+                if (iv != null && iv.isAttachedToWindow()) {
+                    int gap = (copyResult == PixelCopy.SUCCESS) ? scanGrayBmp(bmp) : -1;
+                    if (gap >= 12 && gap <= 160) {
+                        int cropY = gap + 8;
+                        float scale = (float) h / (float) (h - cropY);
+                        iv.setPivotX(w * 0.5f);
+                        iv.setPivotY((float) h);
+                        iv.setScaleX(scale);
+                        iv.setScaleY(scale);
+                        iv.setTag(TAG_COVER, Float.valueOf(scale));
+                        sCoverIv = new WeakReference<>(iv);
+                        sCoverScale = scale;
+                        sCoverH = h;
+                    } else if (attempt < 6) {
+                        iv.postDelayed(this, 350L);
+                    } else if (gap == 0) {
+                        iv.setTag(TAG_COVER, Boolean.TRUE);
+                    }
+                }
+            } catch (Throwable ignored) {
+            } finally {
+                try {
+                    if (bmp != null) bmp.recycle();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+
+        @Override
+        public void run() {
+            try {
+                View pager = pagerRef.get();
+                ImageView iv = ivRef.get();
+                if (pager != null && iv != null) {
+                    scheduleCoverScan(pager, iv, attempt + 1);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private static void fixProfileCover(View pager) {
+        try {
+            View list = pager.findViewById(ID_PROFILE_LIST);
+            if (list == null || list.getVisibility() != View.VISIBLE) return;
+            int pw = pager.getWidth();
+            if (pw < 400) return;
+            ImageView iv = findCoverImage(list, pw - 24, pw / 2, 0);
+            if (iv == null) return;
+
+            ViewParent vp = iv.getParent();
+            if (vp instanceof ViewGroup) {
+                ViewGroup box = (ViewGroup) vp;
+                if (!box.getClipChildren()) box.setClipChildren(true);
+                if (box.getOutlineProvider() != android.view.ViewOutlineProvider.BOUNDS) {
+                    box.setOutlineProvider(android.view.ViewOutlineProvider.BOUNDS);
+                }
+                if (!box.getClipToOutline()) box.setClipToOutline(true);
+            }
+
+            Object tag = iv.getTag(TAG_COVER);
+            if (tag instanceof Float) {
+                float sc = ((Float) tag).floatValue();
+                if (Math.abs(iv.getScaleY() - sc) > 0.005f) {
+                    iv.setPivotX(iv.getWidth() * 0.5f);
+                    iv.setPivotY((float) iv.getHeight());
+                    iv.setScaleX(sc);
+                    iv.setScaleY(sc);
+                }
+                return;
+            }
+            if (tag == Boolean.TRUE) return;
+            int ivH = iv.getHeight();
+            if (sCoverH != 0 && sCoverH != ivH) {
+                sCoverIv = null;
+                sCoverScale = 0f;
+                sCoverH = 0;
+            }
+            if (sCoverScale > 1.01f && sCoverH == ivH) {
+                float sc = sCoverScale;
+                iv.setPivotX(iv.getWidth() * 0.5f);
+                iv.setPivotY((float) ivH);
+                iv.setScaleX(sc);
+                iv.setScaleY(sc);
+                iv.setTag(TAG_COVER, Float.valueOf(sc));
+                sCoverIv = new WeakReference<>(iv);
+                return;
+            }
+            scheduleCoverScan(pager, iv, 0);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    static void scheduleCoverScan(View pager, ImageView iv, int attempt) {
+        try {
+            if (iv.getTag(TAG_COVER) != null) return;
+            Window win = windowFromView(pager);
+            if (win == null || !iv.isAttachedToWindow()) return;
+            int w = iv.getWidth();
+            int h = iv.getHeight();
+            if (w < 400 || h < 400) return;
+            if (attempt == 0) {
+                long now = android.os.SystemClock.uptimeMillis();
+                if (now - sLastCoverMs < 300L) return;
+                sLastCoverMs = now;
+                iv.postDelayed(new CoverScan(pager, iv, w, h, null, 0), 280L);
+                return;
+            }
+            int[] loc = new int[2];
+            iv.getLocationInWindow(loc);
+            int x = loc[0], y = loc[1];
+            int rootW = pager.getRootView().getWidth();
+            if (x < 0 || x + w > rootW + 8 || y < 0 || y > 400) return;
+            int scanH = Math.min(180, h / 3);
+            // Sample 16%..36% width to avoid left hamburger, center pull-to-refresh spinner, and right action icons
+            Rect src = new Rect(x + (w * 4) / 25, y, x + (w * 9) / 25, y + scanH);
+            Bitmap bmp = Bitmap.createBitmap(16, scanH, Bitmap.Config.ARGB_8888);
+            PixelCopy.request(win, src, bmp, new CoverScan(pager, iv, w, h, bmp, attempt),
+                    new Handler(Looper.getMainLooper()));
+        } catch (Throwable ignored) {
+            // Window backing surface may still be switching during fold/unfold -> retry cleanly
+            if (attempt < 6 && iv != null) {
+                try {
+                    iv.postDelayed(new CoverScan(pager, iv, iv.getWidth(), iv.getHeight(), null, attempt), 350L);
+                } catch (Throwable ignored2) {
+                }
+            }
+        }
+    }
+
+    private static ImageView findCoverImage(View v, int minW, int minH, int depth) {
+        if (v instanceof ImageView) {
+            if (v.getWidth() >= minW && v.getHeight() >= minH) {
+                return (ImageView) v;
+            }
+            return null;
+        }
+        if (!(v instanceof ViewGroup) || depth >= 12) return null;
+        ViewGroup vg = (ViewGroup) v;
+        for (int i = 0; i < vg.getChildCount(); i++) {
+            ImageView r = findCoverImage(vg.getChildAt(i), minW, minH, depth + 1);
+            if (r != null) return r;
+        }
+        return null;
+    }
+
+    static int scanGrayBmp(Bitmap bmp) {
+        if (bmp == null) return 0;
+        int scanH = bmp.getHeight();
+        if (scanH < 30) return 0;
+        int p0 = bmp.getPixel(2, 4);
+        int r0 = (p0 >>> 16) & 0xFF;
+        int g0 = (p0 >>> 8) & 0xFF;
+        int b0 = p0 & 0xFF;
+        int maxC = Math.max(r0, Math.max(g0, b0));
+        int minC = Math.min(r0, Math.min(g0, b0));
+        if (minC < 120 || maxC > 216 || (maxC - minC) > 12) {
+            int pBot = bmp.getPixel(8, scanH - 4);
+            if (maxC <= 60 && ((pBot >>> 16) & 0xFF) <= 8) return -1;
+            return 0;
+        }
+        for (int col = 6; col <= 14; col += 4) {
+            int px = bmp.getPixel(col, 4);
+            if (Math.abs(((px >>> 16) & 0xFF) - r0) > 12
+                    || Math.abs(((px >>> 8) & 0xFF) - g0) > 12
+                    || Math.abs((px & 0xFF) - b0) > 12) {
+                return 0;
+            }
+        }
+        int gap = 0;
+        for (int y = 0; y < scanH; y++) {
+            int matchCols = 0;
+            for (int col = 2; col <= 14; col += 4) {
+                int px = bmp.getPixel(col, y);
+                int dr = Math.abs(((px >>> 16) & 0xFF) - r0);
+                int dg = Math.abs(((px >>> 8) & 0xFF) - g0);
+                int db = Math.abs((px & 0xFF) - b0);
+                if ((dr + dg + db) <= 45) matchCols++;
+            }
+            if (matchCols >= 3) {
+                gap = y + 1;
+            } else if (y >= 16) {
+                break;
+            }
+        }
+        if (gap >= scanH - 4) return -1;
+        return gap;
+    }
+
+    static void syncCoverScale() {
+        float sc = sCoverScale;
+        if (sc <= 1.01f) return;
+        ImageView iv = (sCoverIv != null) ? sCoverIv.get() : null;
+        if (iv == null || !iv.isAttachedToWindow()) {
+            long now = android.os.SystemClock.uptimeMillis();
+            if (now - sLastCoverMs < 150L) return;
+            sLastCoverMs = now;
+            View pager = (sPager != null) ? sPager.get() : null;
+            if (pager != null && pager.isAttachedToWindow()) {
+                fixProfileCover(pager);
+                iv = (sCoverIv != null) ? sCoverIv.get() : null;
+            }
+        }
+        if (iv != null && iv.isAttachedToWindow() && Math.abs(iv.getScaleY() - sc) > 0.005f) {
+            iv.setPivotX(iv.getWidth() * 0.5f);
+            iv.setPivotY((float) iv.getHeight());
+            iv.setScaleX(sc);
+            iv.setScaleY(sc);
+        }
+    }
+
+    private static Window windowFromView(View v) {
+        if (v == null) return null;
+        Context c = v.getContext();
+        for (int i = 0; i < 8 && c != null; i++) {
+            if (c instanceof Activity) {
+                Activity a = (Activity) c;
+                return (a.isFinishing() || a.isDestroyed()) ? null : a.getWindow();
+            }
+            if (c instanceof ContextWrapper) {
+                c = ((ContextWrapper) c).getBaseContext();
+            } else {
+                break;
+            }
+        }
+        return null;
     }
 }
