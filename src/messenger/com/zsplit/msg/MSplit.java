@@ -105,8 +105,7 @@ public final class MSplit implements ViewTreeObserver.OnPreDrawListener {
     }
 
     static boolean isDark(View v) {
-        int mode = v.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-        return mode == Configuration.UI_MODE_NIGHT_YES;
+        return TabFx.themeDark(v);
     }
 
     @Override

@@ -27,6 +27,7 @@ import android.widget.LinearLayout;
 import java.util.WeakHashMap;
 
 final class FGlass extends Drawable {
+    // Zalo Android Duo droplet shader (brand-tinted icons inside the droplet, prism meniscus, SDF clip)
     private static final String SHADER_SRC =
             "uniform shader content;\n" +
             "uniform float2 size;\n" +
@@ -35,12 +36,15 @@ final class FGlass extends Drawable {
             "uniform float strength;\n" +
             "uniform float mag;\n" +
             "uniform float pad;\n" +
+            "uniform float4 tintBg;\n" +
+            "uniform float4 selColor;\n" +
             "float sd(float2 p, float2 b, float r){ float2 q=abs(p)-b+float2(r); return length(max(q,float2(0.0)))+min(max(q.x,q.y),0.0)-r; }\n" +
             "half4 main(float2 xy){\n" +
             " float2 c=size*0.5;\n" +
             " float2 p=xy-float2(pad)-c;\n" +
             " float d=sd(p,c,radius);\n" +
-            " if(d>0.0) return content.eval(xy);\n" +
+            " if(d>0.5) return half4(0.0);\n" +
+            " float aa=clamp(0.5-d,0.0,1.0);\n" +
             " float2 g=float2(sd(p+float2(1.0,0.0),c,radius)-sd(p-float2(1.0,0.0),c,radius), sd(p+float2(0.0,1.0),c,radius)-sd(p-float2(0.0,1.0),c,radius));\n" +
             " float gl=length(g);\n" +
             " float2 n=gl>0.0001 ? g/gl : float2(0.0);\n" +
@@ -49,9 +53,16 @@ final class FGlass extends Drawable {
             " float2 base=float2(pad)+c+p/mag;\n" +
             " float o=k*strength;\n" +
             " half4 r=content.eval(base+n*o);\n" +
-            " half4 gg=content.eval(base+n*o*1.18);\n" +
-            " half4 b=content.eval(base+n*o*1.36);\n" +
-            " return half4(r.r,gg.g,b.b,gg.a);\n" +
+            " half4 gg=content.eval(base+n*o*1.22);\n" +
+            " half4 b=content.eval(base+n*o*1.44);\n" +
+            " half4 fg=half4(r.r,gg.g,b.b,max(r.a,max(gg.a,b.a)));\n" +
+            " float sat=max(fg.r,max(fg.g,fg.b))-min(fg.r,min(fg.g,fg.b));\n" +
+            " float mono=clamp(1.0-sat*3.0,0.0,1.0);\n" +
+            " half3 selRgb=mix(fg.rgb, half3(selColor.rgb)*fg.a, half(mono*0.98));\n" +
+            " half3 prism=half3(r.a-gg.a, 0.0, b.a-gg.a)*half(k*0.75);\n" +
+            " half3 outRgb=clamp(selRgb + prism, half3(0.0), half3(1.0)) + half3(tintBg.rgb)*(1.0-fg.a);\n" +
+            " half outA=max(fg.a, half(tintBg.a));\n" +
+            " return half4(outRgb, outA)*aa;\n" +
             "}";
 
     private static final String BAR_SHADER_SRC =
@@ -104,6 +115,7 @@ final class FGlass extends Drawable {
     boolean lens = false;
     float lensA = 0f;
     boolean capturing = false;
+    final TabFx fx = new TabFx();
     boolean forceDark = false;
     private boolean scrollHooked = false;
     private long lastTickMs = 0L;
@@ -247,8 +259,7 @@ final class FGlass extends Drawable {
     @Override public void setColorFilter(ColorFilter cf) {}
 
     private static boolean isDark(View v) {
-        return (v.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
-                == Configuration.UI_MODE_NIGHT_YES;
+        return TabFx.themeDark(v);
     }
 
     private boolean isDarkMode() {
@@ -345,6 +356,8 @@ final class FGlass extends Drawable {
             lensA += diff * (1f - (float) Math.pow(0.88, step));
             host.invalidate();
         }
+        fx.refresh(host, isDarkMode(), lensA == 0f && Float.isNaN(drag));
+        fx.grayActive(host, lensA);
         boolean wantClip = lensA < 0.05f;
         if (host.getClipToOutline() != wantClip) {
             host.setClipToOutline(wantClip);
@@ -421,6 +434,7 @@ final class FGlass extends Drawable {
                 paint.setStyle(Paint.Style.FILL);
                 paint.setColor(dark ? 0x7018191C : 0x62FFFFFF);
                 canvas.drawRoundRect(barRect, r, r, paint);
+                drawRestingActivePill(canvas, d, dark);
                 return;
             }
             if (barPath == null) barPath = new Path();
@@ -517,8 +531,33 @@ final class FGlass extends Drawable {
             canvas.drawRoundRect(barRect, Math.max(0f, r - d), Math.max(0f, r - d), paint);
             paint.setShader(null);
             paint.setStyle(Paint.Style.FILL);
+            drawRestingActivePill(canvas, d, dark);
         } catch (Throwable ignored) {
         }
+    }
+
+    // Zalo resting pill: clear glass behind the selected icon (icons/badges stay crisp on top),
+    // cross-fades into the droplet while gliding/dragging.
+    private void drawRestingActivePill(Canvas canvas, float d, boolean dark) {
+        if (lensA >= 0.95f) return;
+        float pr = geom(d);
+        if (pr < 0f) return;
+        float restAlpha = 1f - lensA;
+        paint.setShader(null);
+        paint.clearShadowLayer();
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(dark ? 0x40FFFFFF : 0x62FFFFFF);
+        paint.setAlpha((int) ((dark ? 0x40 : 0x62) * restAlpha));
+        canvas.drawRoundRect(rect, pr, pr, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1.0f * d);
+        paint.setColor(dark ? 0x66FFFFFF : 0xCCFFFFFF);
+        paint.setAlpha((int) ((dark ? 0x66 : 0xCC) * restAlpha));
+        rect.inset(0.5f * d, 0.5f * d);
+        float pr2 = Math.max(0f, pr - 0.5f * d);
+        canvas.drawRoundRect(rect, pr2, pr2, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setAlpha(255);
     }
 
     private float geom(float d) {
@@ -546,9 +585,9 @@ final class FGlass extends Drawable {
 
         if (isVertical()) {
             float restH = cell - 2f * pad;
-            float lensH = cell * 1.14f * stretch;
+            float lensH = cell * 1.42f * stretch;
             float pillH = restH + (lensH - restH) * lensA;
-            float pillW = w - (2f * pad - 6f * d * lensA);
+            float pillW = w - (2f * pad - 18f * d * lensA);
             float left = (w - pillW) * 0.5f;
             float top = center - pillH * 0.5f;
             float bot = center + pillH * 0.5f;
@@ -562,7 +601,7 @@ final class FGlass extends Drawable {
             float restW = cell - 2f * pad;
             float lensW = cell * 1.42f * stretch;
             float pillW = restW + (lensW - restW) * lensA;
-            float pillH = h - (2f * pad - 16f * d * lensA);
+            float pillH = h - (2f * pad - 18f * d * lensA);
             float top = (h - pillH) * 0.5f;
             float left = center - pillW * 0.5f;
             float right = center + pillW * 0.5f;
@@ -578,109 +617,116 @@ final class FGlass extends Drawable {
     void fore(Canvas canvas) {
         if (capturing) return;
         try {
+            // Rest: pill is drawn in draw() behind the icons. Here only the Zalo-style droplet while moving.
+            if (lensA <= 0.02f) return;
             float d = host.getResources().getDisplayMetrics().density;
             boolean dark = isDarkMode();
             float r = geom(d);
             if (r < 0f) return;
 
-            if (path == null) path = new Path();
-            path.reset();
-            path.addRoundRect(rect, r, r, Path.Direction.CW);
-
-            paint.setShader(null);
-            paint.setStyle(Paint.Style.FILL);
-
-            // Outer diffused shadow
-            canvas.save();
-            canvas.clipOutPath(path);
-            paint.setColor(dark ? 0xFF202026 : 0xFFFFFFFF);
-            paint.setAlpha(255);
-            int shadowA = (int) (14f + 38f * lensA);
-            paint.setShadowLayer((8f + 6f * lensA) * d, 0f, (1.5f + 2f * lensA) * d, shadowA << 24);
-            canvas.drawRoundRect(rect, r, r, paint);
-            paint.clearShadowLayer();
-            canvas.restore();
-
-            // Interior clipped to active Liquid Glass pill
-            canvas.saveLayerAlpha(rect, 255);
-            canvas.clipPath(path);
-
-            if (lensA > 0.03f) {
-                int lensBg = dark ? 0xD8222228 : 0xD8F8F9FC;
-                if (!refract(canvas, rect, r, lensBg)) {
-                    canvas.save();
-                    float sc = 1f + 0.14f * lensA;
-                    canvas.scale(sc, sc, rect.centerX(), rect.centerY());
-                    capturing = true;
-                    try { host.draw(canvas); } finally { capturing = false; }
-                    canvas.restore();
-                }
+            if (!refract(canvas, rect, r, dark)) {
+                if (path == null) path = new Path();
+                path.reset();
+                path.addRoundRect(rect, r, r, Path.Direction.CW);
+                canvas.save();
+                canvas.clipPath(path);
+                paint.setShader(null);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(dark ? 0xD4222228 : 0xE6F8FAFF);
+                paint.setAlpha((int) ((dark ? 0xD4 : 0xE6) * lensA));
+                canvas.drawRoundRect(rect, r, r, paint);
+                float sc = 1f + 0.12f * lensA;
+                canvas.scale(sc, sc, rect.centerX(), rect.centerY());
+                capturing = true;
+                try { host.draw(canvas); } finally { capturing = false; }
+                canvas.restore();
             }
 
-            paint.setColor(dark ? 0x2EFFFFFF : 0x45FFFFFF);
-            canvas.drawRoundRect(rect, r, r, paint);
-
-            grad(paint, rect.top, rect.centerY(),
-                    dark ? 0x2CFFFFFF : 0x80FFFFFF, 0x00FFFFFF);
-            canvas.drawRoundRect(rect, r, r, paint);
-            paint.setShader(null);
-
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(0.85f * d);
-            paint.setColor(dark ? 0x38FFFFFF : 0x1A000000);
-            canvas.drawRoundRect(rect, r, r, paint);
-
-            float rim = 1.4f * d;
-            paint.setStrokeWidth(rim);
-            rect.inset(rim, rim);
-            float r2 = Math.max(0f, r - rim);
+            paint.setStrokeWidth(1.1f * d);
             paint.setShader(new LinearGradient(
                     rect.left, rect.top, rect.left + rect.width() * 0.4f, rect.bottom,
-                    dark ? new int[]{0x99FFFFFF, 0x1AFFFFFF, 0x44FFFFFF}
-                         : new int[]{0xFFFFFFFF, 0x33FFFFFF, 0xB8FFFFFF},
+                    dark ? new int[]{0xAAFFFFFF, 0x20FFFFFF, 0x60FFFFFF}
+                         : new int[]{0xFFFFFFFF, 0x40FFFFFF, 0xBBFFFFFF},
                     new float[]{0f, 0.5f, 1f},
                     Shader.TileMode.CLAMP));
-            canvas.drawRoundRect(rect, r2, r2, paint);
-
+            paint.setAlpha((int) (255 * lensA));
+            canvas.drawRoundRect(rect, r, r, paint);
             paint.setShader(null);
             paint.setStyle(Paint.Style.FILL);
             paint.setAlpha(255);
-            canvas.restore();
         } catch (Throwable ignored) {
         }
     }
 
-    private boolean refract(Canvas canvas, RectF box, float radius, int bgColor) {
+    private static final int[] STATE_SELECTED = new int[]{android.R.attr.state_activated, android.R.attr.state_selected, android.R.attr.state_checked, android.R.attr.state_enabled};
+
+    private static void forceSelected(View v, java.util.ArrayList<Object[]> saved) {
+        if (v instanceof android.widget.ImageView) {
+            Drawable dr = ((android.widget.ImageView) v).getDrawable();
+            if (dr != null && dr.isStateful()) {
+                int[] prev = dr.getState();
+                saved.add(new Object[]{dr, dr.getCallback(), prev != null ? prev.clone() : new int[0]});
+                dr.setCallback(null);
+                dr.setState(STATE_SELECTED);
+            }
+        } else if (v instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) v;
+            for (int i = 0; i < vg.getChildCount(); i++) forceSelected(vg.getChildAt(i), saved);
+        }
+    }
+
+    private static void restoreSelected(java.util.ArrayList<Object[]> saved) {
+        for (int i = saved.size() - 1; i >= 0; i--) {
+            Object[] o = saved.get(i);
+            Drawable dr = (Drawable) o[0];
+            dr.setState((int[]) o[2]);
+            dr.setCallback((Drawable.Callback) o[1]);
+        }
+    }
+
+    private boolean refract(Canvas canvas, RectF box, float radius, boolean dark) {
         try {
             if (!canvas.isHardwareAccelerated() || Build.VERSION.SDK_INT < 33) return false;
             if (node == null) node = new RenderNode("flens");
             if (rs == null) rs = new RuntimeShader(SHADER_SRC);
 
             float d = host.getResources().getDisplayMetrics().density;
-            float pad = 24f * d;
+            float fx = lensA * lensA;
+            float pad = 12f * d;
             float bw = box.width();
             float bh = box.height();
             int nw = (int) (bw + 2f * pad);
             int nh = (int) (bh + 2f * pad);
             if (nw <= 0 || nh <= 0) return false;
 
+            java.util.ArrayList<Object[]> saved = new java.util.ArrayList<>();
             node.setPosition(0, 0, nw, nh);
             Canvas rc = node.beginRecording(nw, nh);
             try {
-                rc.drawColor(bgColor);
+                forceSelected(host, saved);
                 rc.translate(pad - box.left, pad - box.top);
                 capturing = true;
-                try { host.draw(rc); } finally { capturing = false; }
+                try { this.fx.drawSelected(host, rc); } finally { capturing = false; }
             } finally {
+                restoreSelected(saved);
                 node.endRecording();
             }
 
+            float dm = dark ? 1f : 0f;
             rs.setFloatUniform("size", bw, bh);
             rs.setFloatUniform("radius", radius);
             rs.setFloatUniform("pad", pad);
-            rs.setFloatUniform("edge", Math.min((8f + 12f * lensA) * d, radius));
-            rs.setFloatUniform("strength", (2f + 14f * lensA) * d);
-            rs.setFloatUniform("mag", 1f + 0.12f * lensA);
+            rs.setFloatUniform("edge", Math.min(13f * d, radius));
+            rs.setFloatUniform("strength", 13f * d * fx);
+            rs.setFloatUniform("mag", 1f + 0.10f * fx);
+            float bgR = 0.97f * (1f - dm) + 0.21f * dm;
+            float bgG = 0.98f * (1f - dm) + 0.21f * dm;
+            float bgB = 1.00f * (1f - dm) + 0.24f * dm;
+            float bgA = (0.90f * (1f - dm) + 0.90f * dm) * lensA;
+            rs.setFloatUniform("tintBg", bgR, bgG, bgB, bgA);
+            // Facebook blue #0866FF (brighter in dark mode)
+            rs.setFloatUniform("selColor", 0.03f + 0.24f * dm, 0.40f + 0.18f * dm, 1.0f, 1.0f);
 
             node.setRenderEffect(RenderEffect.createRuntimeShaderEffect(rs, "content"));
             canvas.save();

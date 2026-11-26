@@ -24,6 +24,8 @@ final class MGlass {
     private static final float CONTENT_SCALE = 0.88f;
 
     // AGSL Liquid Glass refraction + chromatic dispersion shader (used on both outer capsule & active lens)
+    // Zalo Android Duo droplet shader: tints monochrome icons/labels inside the droplet with the brand colour,
+    // keeps coloured badges/avatars, prism fringe on the meniscus, clipped to the SDF (no gray box).
     private static final String SHADER_SRC =
             "uniform shader content;\n" +
             "uniform float2 size;\n" +
@@ -32,12 +34,15 @@ final class MGlass {
             "uniform float strength;\n" +
             "uniform float mag;\n" +
             "uniform float pad;\n" +
+            "uniform float4 tintBg;\n" +
+            "uniform float4 selColor;\n" +
             "float sd(float2 p, float2 b, float r){ float2 q=abs(p)-b+float2(r); return length(max(q,float2(0.0)))+min(max(q.x,q.y),0.0)-r; }\n" +
             "half4 main(float2 xy){\n" +
             " float2 c=size*0.5;\n" +
             " float2 p=xy-float2(pad)-c;\n" +
             " float d=sd(p,c,radius);\n" +
-            " if(d>0.0) return content.eval(xy);\n" +
+            " if(d>0.5) return half4(0.0);\n" +
+            " float aa=clamp(0.5-d,0.0,1.0);\n" +
             " float2 g=float2(sd(p+float2(1.0,0.0),c,radius)-sd(p-float2(1.0,0.0),c,radius), sd(p+float2(0.0,1.0),c,radius)-sd(p-float2(0.0,1.0),c,radius));\n" +
             " float gl=length(g);\n" +
             " float2 n=gl>0.0001 ? g/gl : float2(0.0);\n" +
@@ -46,9 +51,16 @@ final class MGlass {
             " float2 base=float2(pad)+c+p/mag;\n" +
             " float o=k*strength;\n" +
             " half4 r=content.eval(base+n*o);\n" +
-            " half4 gg=content.eval(base+n*o*1.18);\n" +
-            " half4 b=content.eval(base+n*o*1.36);\n" +
-            " return half4(r.r,gg.g,b.b,gg.a);\n" +
+            " half4 gg=content.eval(base+n*o*1.22);\n" +
+            " half4 b=content.eval(base+n*o*1.44);\n" +
+            " half4 fg=half4(r.r,gg.g,b.b,max(r.a,max(gg.a,b.a)));\n" +
+            " float sat=max(fg.r,max(fg.g,fg.b))-min(fg.r,min(fg.g,fg.b));\n" +
+            " float mono=clamp(1.0-sat*3.0,0.0,1.0);\n" +
+            " half3 selRgb=mix(fg.rgb, half3(selColor.rgb)*fg.a, half(mono*0.98));\n" +
+            " half3 prism=half3(r.a-gg.a, 0.0, b.a-gg.a)*half(k*0.75);\n" +
+            " half3 outRgb=clamp(selRgb + prism, half3(0.0), half3(1.0)) + half3(tintBg.rgb)*(1.0-fg.a);\n" +
+            " half outA=max(fg.a, half(tintBg.a));\n" +
+            " return half4(outRgb, outA)*aa;\n" +
             "}";
 
     private static final String BAR_SHADER_SRC =
@@ -89,6 +101,7 @@ final class MGlass {
     boolean lens = false;
     float lensA = 0f;
     boolean capturing = false;
+    final TabFx fx = new TabFx();
     private long lastTickMs = 0L;
 
     final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -240,6 +253,7 @@ final class MGlass {
             lensA += diff * (1f - (float) Math.pow(0.88, step));
             host.invalidate();
         }
+        trackSelection();
         boolean wantClip = lensA < 0.05f;
         if (host.getClipToOutline() != wantClip) {
             host.setClipToOutline(wantClip);
@@ -488,24 +502,17 @@ final class MGlass {
                     float restAlpha = 1f - lensA;
 
                     paint.setShader(null);
-                    paint.setStyle(Paint.Style.FILL);
-                    canvas.save();
-                    canvas.clipOutPath(path);
-                    paint.setColor(dark ? 0xFF202026 : 0xFFFFFFFF);
-                    paint.setAlpha(255);
-                    paint.setShadowLayer(6f * d, 0f, 1.5f * d, ((int) (18f * restAlpha)) << 24);
-                    canvas.drawRoundRect(rect, r, r, paint);
                     paint.clearShadowLayer();
-                    canvas.restore();
+                    paint.setStyle(Paint.Style.FILL);
 
-                    paint.setColor(dark ? 0x2EFFFFFF : 0x62FFFFFF);
-                    paint.setAlpha((int) ((dark ? 0x2E : 0x62) * restAlpha));
+                    paint.setColor(dark ? 0x40FFFFFF : 0x62FFFFFF);
+                    paint.setAlpha((int) ((dark ? 0x40 : 0x62) * restAlpha));
                     canvas.drawRoundRect(rect, r, r, paint);
 
                     paint.setStyle(Paint.Style.STROKE);
                     paint.setStrokeWidth(1.0f * d);
-                    paint.setColor(dark ? 0x44FFFFFF : 0xCCFFFFFF);
-                    paint.setAlpha((int) ((dark ? 0x44 : 0xCC) * restAlpha));
+                    paint.setColor(dark ? 0x66FFFFFF : 0xCCFFFFFF);
+                    paint.setAlpha((int) ((dark ? 0x66 : 0xCC) * restAlpha));
                     rect.inset(0.5f * d, 0.5f * d);
                     canvas.drawRoundRect(rect, Math.max(0f, r - 0.5f * d), Math.max(0f, r - 0.5f * d), paint);
                     paint.setStyle(Paint.Style.FILL);
@@ -519,121 +526,228 @@ final class MGlass {
     void fore(Canvas canvas, Rect bounds) {
         if (capturing) return;
         try {
-            // At rest, MBack already drew both the outer glass capsule & active pill BEHIND icons/badges.
-            // MFore ONLY draws the magnifying liquid lens while actively dragging or gliding!
-            if (lensA < 0.03f) return;
+            // At rest the pill is drawn by back() behind icons/badges. fore() only draws the Zalo-style
+            // droplet while gliding/dragging: icons inside turn Messenger blue, prism edge, glass rim.
             float w = bounds.width();
             float h = bounds.height();
             if (w <= 0 || h <= 0) return;
-            float d = host.getResources().getDisplayMetrics().density;
             boolean dark = MSplit.isDark(host);
-
-            // Active magnifying liquid lens during drag/glide
+            if (prevSelIdx >= 0 && prevSelIdx != lastSelIdx && SystemClock.uptimeMillis() - prevSelT < PREV_GRAY_MS) {
+                grayCell(canvas, prevSelIdx, 1f, w, h, dark);
+            }
+            if (lensA <= 0.02f) return;
+            float d = host.getResources().getDisplayMetrics().density;
+            grayActiveCell(canvas, w, h, dark);
             float r = geom(w, h, d);
             if (r < 0f) return;
 
-            if (path == null) path = new Path();
-            path.reset();
-            path.addRoundRect(rect, r, r, Path.Direction.CW);
-
-            paint.setShader(null);
-            paint.setStyle(Paint.Style.FILL);
-
-            // Outer diffused glass shadow (clipped outside the pill)
-            canvas.save();
-            canvas.clipOutPath(path);
-            paint.setColor(dark ? 0xFF202026 : 0xFFFFFFFF);
-            paint.setAlpha(255);
-            int shadowA = (int) (14f + 38f * lensA);
-            paint.setShadowLayer((8f + 6f * lensA) * d, 0f, (1.5f + 2f * lensA) * d, shadowA << 24);
-            canvas.drawRoundRect(rect, r, r, paint);
-            paint.clearShadowLayer();
-            canvas.restore();
-
-            // Interior of active Liquid Glass pill
-            canvas.saveLayerAlpha(rect, 255);
-            canvas.clipPath(path);
-
-            // When resting (lensA ~ 0), stay translucent over the frosted capsule so it feels like pure glass!
-            // When dragging/gliding (lensA > 0), run full AGSL optical refraction + chromatic dispersion!
-            if (lensA > 0.03f) {
-                int lensBg = dark ? 0xD8222228 : 0xD8F8F9FC;
-                if (!refract(canvas, rect, r, lensBg, w, h)) {
-                    canvas.save();
-                    float sc = 1f + 0.14f * lensA;
-                    canvas.scale(sc, sc, rect.centerX(), rect.centerY());
-                    drawScaledTabs(canvas, w, h);
-                    canvas.restore();
-                }
+            if (!refract(canvas, rect, r, dark, w, h)) {
+                if (path == null) path = new Path();
+                path.reset();
+                path.addRoundRect(rect, r, r, Path.Direction.CW);
+                canvas.save();
+                canvas.clipPath(path);
+                paint.setShader(null);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(dark ? 0xD4222228 : 0xE6F8FAFF);
+                paint.setAlpha((int) ((dark ? 0xD4 : 0xE6) * lensA));
+                canvas.drawRoundRect(rect, r, r, paint);
+                float sc = 1f + 0.12f * lensA;
+                canvas.scale(sc, sc, rect.centerX(), rect.centerY());
+                drawScaledTabs(canvas, w, h);
+                canvas.restore();
             }
 
-            // Luminous translucent glass fill (subtle tinted crystal pill like iOS 26/27)
-            paint.setColor(dark ? 0x2EFFFFFF : 0x45FFFFFF);
-            canvas.drawRoundRect(rect, r, r, paint);
-
-            // Top specular dome sheen
-            grad(paint, rect.top, rect.centerY(),
-                    dark ? 0x2CFFFFFF : 0x80FFFFFF,
-                    0x00FFFFFF);
-            canvas.drawRoundRect(rect, r, r, paint);
-            paint.setShader(null);
-
-            // Outer subtle edge + bright diagonal iOS specular rim
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(0.85f * d);
-            paint.setColor(dark ? 0x38FFFFFF : 0x1A000000);
-            canvas.drawRoundRect(rect, r, r, paint);
-
-            float rim = 1.4f * d;
-            paint.setStrokeWidth(rim);
-            rect.inset(rim, rim);
-            float r2 = Math.max(0f, r - rim);
+            paint.setStrokeWidth(1.1f * d);
             paint.setShader(new LinearGradient(
                     rect.left, rect.top, rect.left + rect.width() * 0.4f, rect.bottom,
-                    dark ? new int[]{0x99FFFFFF, 0x1AFFFFFF, 0x44FFFFFF}
-                         : new int[]{0xFFFFFFFF, 0x33FFFFFF, 0xB8FFFFFF},
+                    dark ? new int[]{0xAAFFFFFF, 0x20FFFFFF, 0x60FFFFFF}
+                         : new int[]{0xFFFFFFFF, 0x40FFFFFF, 0xBBFFFFFF},
                     new float[]{0f, 0.5f, 1f},
                     Shader.TileMode.CLAMP));
-            canvas.drawRoundRect(rect, r2, r2, paint);
-
+            paint.setAlpha((int) (255 * lensA));
+            canvas.drawRoundRect(rect, r, r, paint);
             paint.setShader(null);
             paint.setStyle(Paint.Style.FILL);
             paint.setAlpha(255);
-            canvas.restore();
         } catch (Throwable ignored) {
         }
     }
 
-    private boolean refract(Canvas canvas, RectF box, float radius, int bgColor, float w, float h) {
+    private final Paint grayPaint = new Paint();
+    private int grayColor;
+    private int grayKey = -1;
+
+    // Selected tab fades to the unselected grey while the droplet is away from it (Litho draws the icon+label
+    // in the parent host, so the cell is redrawn on top through a colour matrix instead of tinting a child view).
+    private void grayActiveCell(Canvas canvas, float w, float h, boolean dark) {
+        float ap = activePos();
+        if (Float.isNaN(ap)) return;
+        grayCell(canvas, Math.round(ap), Math.min(1f, lensA * 1.25f), w, h, dark);
+    }
+
+    private static final long PREV_GRAY_MS = 1500L;
+    int lastSelIdx = -1;
+    int prevSelIdx = -1;
+    long prevSelT;
+
+    void trackSelection() {
+        float ap = activePos();
+        if (Float.isNaN(ap)) return;
+        int idx = Math.round(ap);
+        long now = SystemClock.uptimeMillis();
+        if (idx != lastSelIdx) {
+            if (lastSelIdx >= 0) {
+                prevSelIdx = lastSelIdx;
+                prevSelT = now;
+            }
+            lastSelIdx = idx;
+        }
+        if (prevSelIdx >= 0 && now - prevSelT < PREV_GRAY_MS + 50L) host.invalidate();
+    }
+
+    // Column of tab idx: from the midpoint with its left neighbour to the midpoint with its right neighbour,
+    // so the whole label (wider than the icon host view) is covered.
+    private RectF cellRect(ViewGroup vg, int idx, float w, float h) {
+        int n = count(vg);
+        View v = kid(vg, idx);
+        if (v == null) return null;
+        float c = scaledCx(v);
+        View a = idx > 0 ? kid(vg, idx - 1) : null;
+        View b = idx < n - 1 ? kid(vg, idx + 1) : null;
+        float l = a != null ? (scaledCx(a) + c) * 0.5f : 0f;
+        float r = b != null ? (scaledCx(b) + c) * 0.5f : w;
+        return new RectF(l, 0f, r, h);
+    }
+
+    private void grayCell(Canvas canvas, int idx, float t, float w, float h, boolean dark) {
+        ViewGroup vg = tabs();
+        if (vg == null || t <= 0f) return;
+        RectF cell = cellRect(vg, idx, w, h);
+        if (cell == null) return;
+        int key = dark ? 1 : 0;
+        if (grayKey != key) {
+            grayKey = key;
+            grayColor = sampleGray(vg, idx, w, h, dark);
+        }
+        float k = 1f - t;
+        float gr = (grayColor >> 16) & 255, gg = (grayColor >> 8) & 255, gb = grayColor & 255;
+        grayPaint.setColorFilter(new android.graphics.ColorMatrixColorFilter(new android.graphics.ColorMatrix(new float[]{
+                k, 0, 0, 0, gr * t,
+                0, k, 0, 0, gg * t,
+                0, 0, k, 0, gb * t,
+                0, 0, 0, 1, 0})));
+        canvas.save();
+        canvas.clipRect(cell);
+        canvas.saveLayer(cell, grayPaint);
+        drawScaledTabs(canvas, w, h);
+        canvas.restore();
+        canvas.restore();
+    }
+
+    private int sampleGray(ViewGroup vg, int selIdx, float w, float h, boolean dark) {
+        int def = dark ? 0xFFB0B3B8 : 0xFF65676B;
+        try {
+            int n = count(vg);
+            int other = (selIdx == 0 && n > 1) ? 1 : 0;
+            View o = kid(vg, other);
+            if (o == null || w <= 0 || h <= 0) return def;
+            float sc = Math.min(1f, 256f / w);
+            android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(Math.max(1, (int) (w * sc)), Math.max(1, (int) (h * sc)), android.graphics.Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(b);
+            c.scale(sc, sc);
+            drawScaledTabs(c, w, h);
+            RectF oc = cellRect(vg, other, w, h);
+            int x0 = Math.max(0, (int) (oc.left * sc)), x1 = Math.min(b.getWidth(), (int) (oc.right * sc));
+            long r = 0, g = 0, bl = 0, cnt = 0;
+            for (int y = 0; y < b.getHeight(); y++) {
+                for (int x = x0; x < x1; x++) {
+                    int p = b.getPixel(x, y);
+                    if ((p >>> 24) < 200) continue;
+                    int pr = (p >> 16) & 255, pg = (p >> 8) & 255, pb = p & 255;
+                    if (Math.max(pr, Math.max(pg, pb)) - Math.min(pr, Math.min(pg, pb)) > 40) continue;
+                    r += pr; g += pg; bl += pb; cnt++;
+                }
+            }
+            b.recycle();
+            if (cnt < 4) return def;
+            return 0xFF000000 | ((int) (r / cnt) << 16) | ((int) (g / cnt) << 8) | (int) (bl / cnt);
+        } catch (Throwable t) {
+            capturing = false;
+            return def;
+        }
+    }
+
+    private static final int[] STATE_SELECTED = new int[]{android.R.attr.state_activated, android.R.attr.state_selected, android.R.attr.state_checked, android.R.attr.state_enabled};
+
+    // Draw every tab icon in its selected state while recording the droplet content (like Zalo's iconActive swap)
+    private static void forceSelected(View v, java.util.ArrayList<Object[]> saved) {
+        if (v instanceof android.widget.ImageView) {
+            Drawable dr = ((android.widget.ImageView) v).getDrawable();
+            if (dr != null && dr.isStateful()) {
+                int[] prev = dr.getState();
+                saved.add(new Object[]{dr, dr.getCallback(), prev != null ? prev.clone() : new int[0]});
+                dr.setCallback(null);
+                dr.setState(STATE_SELECTED);
+            }
+        } else if (v instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) v;
+            for (int i = 0; i < vg.getChildCount(); i++) forceSelected(vg.getChildAt(i), saved);
+        }
+    }
+
+    private static void restoreSelected(java.util.ArrayList<Object[]> saved) {
+        for (int i = saved.size() - 1; i >= 0; i--) {
+            Object[] o = saved.get(i);
+            Drawable dr = (Drawable) o[0];
+            dr.setState((int[]) o[2]);
+            dr.setCallback((Drawable.Callback) o[1]);
+        }
+    }
+
+    private boolean refract(Canvas canvas, RectF box, float radius, boolean dark, float w, float h) {
         try {
             if (!canvas.isHardwareAccelerated() || Build.VERSION.SDK_INT < 33) return false;
             if (node == null) node = new RenderNode("mlens");
             if (rs == null) rs = new RuntimeShader(SHADER_SRC);
 
             float d = host.getResources().getDisplayMetrics().density;
-            float pad = 24f * d;
+            float fx = lensA * lensA;
+            float pad = 12f * d;
             float bw = box.width();
             float bh = box.height();
             int nw = (int) (bw + 2f * pad);
             int nh = (int) (bh + 2f * pad);
             if (nw <= 0 || nh <= 0) return false;
 
+            java.util.ArrayList<Object[]> saved = new java.util.ArrayList<>();
             node.setPosition(0, 0, nw, nh);
             Canvas rc = node.beginRecording(nw, nh);
             try {
-                rc.drawColor(bgColor);
+                ViewGroup vg = tabs();
+                if (vg != null) forceSelected(vg, saved);
                 rc.translate(pad - box.left, pad - box.top);
                 drawScaledTabs(rc, w, h);
             } finally {
+                restoreSelected(saved);
                 node.endRecording();
             }
 
+            float dm = dark ? 1f : 0f;
             rs.setFloatUniform("size", bw, bh);
             rs.setFloatUniform("radius", radius);
             rs.setFloatUniform("pad", pad);
-            rs.setFloatUniform("edge", Math.min((8f + 12f * lensA) * d, radius));
-            rs.setFloatUniform("strength", (2f + 14f * lensA) * d);
-            rs.setFloatUniform("mag", 1f + 0.12f * lensA);
+            rs.setFloatUniform("edge", Math.min(13f * d, radius));
+            rs.setFloatUniform("strength", 13f * d * fx);
+            rs.setFloatUniform("mag", 1f + 0.10f * fx);
+            float bgR = 0.97f * (1f - dm) + 0.21f * dm;
+            float bgG = 0.98f * (1f - dm) + 0.21f * dm;
+            float bgB = 1.00f * (1f - dm) + 0.24f * dm;
+            float bgA = (0.90f * (1f - dm) + 0.90f * dm) * lensA;
+            rs.setFloatUniform("tintBg", bgR, bgG, bgB, bgA);
+            // Messenger blue #0A7CFF (brighter in dark mode)
+            rs.setFloatUniform("selColor", 0.04f + 0.22f * dm, 0.49f + 0.13f * dm, 1.0f, 1.0f);
 
             node.setRenderEffect(RenderEffect.createRuntimeShaderEffect(rs, "content"));
             canvas.save();

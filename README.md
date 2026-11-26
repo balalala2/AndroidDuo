@@ -1,12 +1,13 @@
-# Android Duo 2.0
+# Android Duo 2.1
 
 Bộ bản vá giúp các ứng dụng phổ biến **tối ưu toàn diện cho điện thoại gập**: chia đôi màn hình 40/60 tận dụng màn trong rộng, thanh điều hướng nổi **Liquid Glass** (tự động kích hoạt engine kính lỏng phần cứng trên OriginOS và tự fallback sang AGSL shader trên các thiết bị gập khác), chuyển mượt giữa màn ngoài và màn trong.
 
-| Ứng dụng | Phiên bản gốc | Tải về (v2.0) |
+| Ứng dụng | Phiên bản gốc | Tải về |
 |---|---|---|
 | **Zalo** | 26.11.01 | [Zalo-v26.11.01-AndroidDuo-2.0.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.0/Zalo-v26.11.01-AndroidDuo-2.0.apk) |
-| **Messenger** | 576.0.0.47.92 | [Messenger-v576.0.0.47.92-AndroidDuo-2.0.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.0/Messenger-v576.0.0.47.92-AndroidDuo-2.0.apk) |
-| **Facebook** | 588.0.0.42.55 | [Facebook-v588.0.0.42.55-AndroidDuo-2.0.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.0/Facebook-v588.0.0.42.55-AndroidDuo-2.0.apk) |
+| **YouTube** | 21.30.216 | [YouTube-v21.30.216-AndroidDuo-2.1.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.1/YouTube-v21.30.216-AndroidDuo-2.1.apk) |
+| **Messenger** | 576.0.0.47.92 | [Messenger-v576.0.0.47.92-AndroidDuo-2.1.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.1/Messenger-v576.0.0.47.92-AndroidDuo-2.1.apk) |
+| **Facebook** | 588.0.0.42.55 | [Facebook-v588.0.0.42.55-AndroidDuo-2.1.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.1/Facebook-v588.0.0.42.55-AndroidDuo-2.1.apk) |
 
 ---
 
@@ -46,6 +47,13 @@ Bộ bản vá giúp các ứng dụng phổ biến **tối ưu toàn diện cho
 
 ## Changelog
 
+### v2.1
+- **Mới**: thêm **YouTube (`21.30.216`, bản Morphe)**: 2 cột màn trong, dock Liquid Glass, tự hạ dock ở tab Shorts. Cần MicroG / GmsCore.
+- **Dock YouTube, Messenger, Facebook đồng bộ theo Zalo**: lò xo và giọt nước giống Zalo, giọt phình ~1,4 ô tab; icon tô kín và đổi màu thương hiệu bên trong giọt; tab đang chọn chuyển xám khi giọt rời đi; viên kính đứng yên nằm sau icon.
+- **Giao diện tối**: dock theo chế độ tối của chính app; tên tab trắng trên nền tối; viên kính và giọt nước sáng hơn.
+- **Facebook**: viên chọn tab không còn phủ mờ lên icon.
+- **Messenger**: bỏ bóng đổ quanh viên kính; tên tab cũ hết xanh ngay khi đổi tab.
+
 ### v2.0
 - **Mới**: Bổ sung **Messenger (`v576.0.0.47.92`)** với chia đôi 40/60 (Tin nhắn + Cài đặt), dock Liquid Glass đồng bộ và tự nâng nút Meta AI trên mọi tab.
 - **Nâng cấp lớn — Liquid Glass Engine**: chuyển sang engine kính lỏng phần cứng (kèm fallback AGSL), hoạt ảnh lò xo 120Hz, xử lý triệt để lỗi tối dần khi nháy con trỏ và nháy bóng dock.
@@ -70,8 +78,9 @@ Bộ bản vá giúp các ứng dụng phổ biến **tối ưu toàn diện cho
 ## Cài đặt
 ```sh
 adb install -r Zalo-v26.11.01-AndroidDuo-2.0.apk
-adb install -r Messenger-v576.0.0.47.92-AndroidDuo-2.0.apk
-adb install -r Facebook-v588.0.0.42.55-AndroidDuo-2.0.apk
+adb install -r Messenger-v576.0.0.47.92-AndroidDuo-2.1.apk
+adb install -r Facebook-v588.0.0.42.55-AndroidDuo-2.1.apk
+adb install -r YouTube-v21.30.216-AndroidDuo-2.1.apk
 ```
 - Các APK được ký cùng khóa của dự án (cert SHA-256 `8c3408403a657900eab0ba56d2a5871b3d9e2eb002bad73f0993f7084f8d21db`), cài đè trực tiếp lên bản Android Duo 1.0 mà **không mất dữ liệu**.
 - Nếu đang dùng bản chính thức từ CH Play, cần **gỡ bản đó trước** (khác chữ ký). Hãy sao lưu tin nhắn Zalo trước khi gỡ.
@@ -81,8 +90,9 @@ adb install -r Facebook-v588.0.0.42.55-AndroidDuo-2.0.apk
 ## Mã nguồn
 ```
 src/zalo/       lớp com.zing.zalo.zsplit.* (ZGlass.java + smali + classes.patched.dex)
-src/messenger/  lớp com.zsplit.msg.* (MSplit, MDock, MGlass, PrefSplit)
-src/facebook/   lớp com.zsplit.fb.* (FSplit, FGlass) + compile stubs
+src/messenger/  lớp com.zsplit.msg.* (MSplit, MDock, MGlass, PrefSplit, TabFx)
+src/facebook/   lớp com.zsplit.fb.* (FSplit, FGlass, TabFx) + compile stubs
+src/youtube/    lớp com.zsplit.yt.* (YGlass, TabFx)
 tools/          công cụ build: dịch smali, vá dex, đóng gói, gộp split, ký
 ```
 Hướng dẫn build và cách vá thêm ứng dụng khác: xem [BUILD.md](BUILD.md).
