@@ -21,7 +21,7 @@ import android.view.ViewGroup;
 import android.view.ViewParent;
 
 final class MGlass {
-    private static final float CONTENT_SCALE = 0.88f;
+    private static final float CONTENT_SCALE = 1.0f;
 
     // AGSL Liquid Glass refraction + chromatic dispersion shader (used on both outer capsule & active lens)
     // Zalo Android Duo droplet shader: tints monochrome icons/labels inside the droplet with the brand colour,
@@ -175,8 +175,53 @@ final class MGlass {
         this.tabGroup = tabGroup;
     }
 
+    boolean isVivoActive() {
+        return vivoActive;
+    }
+
+    private boolean sLoggedTabs;
+
     ViewGroup tabs() {
-        return tabGroup != null ? tabGroup : ((host instanceof ViewGroup) ? (ViewGroup) host : null);
+        ViewGroup root = tabGroup != null ? tabGroup : ((host instanceof ViewGroup) ? (ViewGroup) host : null);
+        if (root == null) return null;
+        ViewGroup found = findTabRow(root, 0);
+        ViewGroup res = (found != null) ? found : root;
+        if (!sLoggedTabs && count(res) > 0) {
+            sLoggedTabs = true;
+            StringBuilder sb = new StringBuilder("tabs() found n=" + count(res) + " cls=" + res.getClass().getSimpleName());
+            for (int i = 0; i < count(res); i++) {
+                View k = kid(res, i);
+                if (k != null) {
+                    sb.append(" [").append(i).append(":cx=").append((int) scaledCx(k))
+                      .append(",w=").append(k.getWidth())
+                      .append(",sel=").append(k.isSelected())
+                      .append(",clk=").append(k.isClickable()).append("]");
+                }
+            }
+            android.util.Log.i("MGlass", sb.toString());
+        }
+        return res;
+    }
+
+    private static ViewGroup findTabRow(ViewGroup vg, int depth) {
+        if (vg == null || depth > 5) return null;
+        int n = count(vg);
+        if (n >= 3 && n <= 6) {
+            int clkOrSel = 0;
+            for (int i = 0; i < n; i++) {
+                View k = kid(vg, i);
+                if (k != null && (k.isClickable() || k.isSelected())) clkOrSel++;
+            }
+            if (clkOrSel >= 2) return vg;
+        }
+        for (int i = 0; i < vg.getChildCount(); i++) {
+            View ch = vg.getChildAt(i);
+            if (ch instanceof ViewGroup && ch.getVisibility() == View.VISIBLE) {
+                ViewGroup sub = findTabRow((ViewGroup) ch, depth + 1);
+                if (sub != null) return sub;
+            }
+        }
+        return null;
     }
 
     static int count(ViewGroup vg) {
@@ -200,8 +245,14 @@ final class MGlass {
     }
 
     float scaledCx(View v) {
+        float rawCx = v.getWidth() * 0.5f;
+        View curV = v;
+        while (curV != null && curV != host) {
+            rawCx += curV.getLeft();
+            ViewParent p = curV.getParent();
+            curV = (p instanceof View) ? (View) p : null;
+        }
         float hw = host.getWidth() * 0.5f;
-        float rawCx = v.getLeft() + v.getWidth() * 0.5f;
         return hw + (rawCx - hw) * CONTENT_SCALE;
     }
 
@@ -450,10 +501,14 @@ final class MGlass {
         float cellW = w0 + (w1 - w0) * f;
 
         float stretch = 1f + Math.min(Math.abs(vel) * 6f, 0.22f);
-        // True 4dp concentric full-capsule pill wrapping the uniformly 0.88x-scaled icon + label with generous breathing room!
+        // True 4dp concentric full-capsule pill DEAD-CENTERED on each icon (r_inner = r_outer - 4dp).
+        // Compute restW from first tab's center so Tab 0 hugs left edge at exact 4dp AND stays 100% centered on the icon!
         float pad = 4f * d;
-        float restW = cellW + 10f * d;
-        float lensW = cellW * 1.44f * stretch;
+        View firstV = kid(vg, 0);
+        float firstCx = (firstV != null) ? scaledCx(firstV) : (w * 0.125f);
+        float concentricW = 2f * (firstCx - pad);
+        float restW = Math.max(cellW, Math.min(concentricW, cellW * 1.42f));
+        float lensW = Math.max(restW * 1.28f, cellW * 1.40f) * stretch;
         float pillW = restW + (lensW - restW) * lensA;
 
         float insetY = (2f * pad) - 18f * d * lensA;
@@ -505,8 +560,8 @@ final class MGlass {
                     paint.clearShadowLayer();
                     paint.setStyle(Paint.Style.FILL);
 
-                    paint.setColor(dark ? 0x40FFFFFF : 0x62FFFFFF);
-                    paint.setAlpha((int) ((dark ? 0x40 : 0x62) * restAlpha));
+                    paint.setColor(dark ? 0x48FFFFFF : 0x7AFFFFFF);
+                    paint.setAlpha((int) ((dark ? 0x48 : 0x7A) * restAlpha));
                     canvas.drawRoundRect(rect, r, r, paint);
 
                     paint.setStyle(Paint.Style.STROKE);
@@ -744,7 +799,7 @@ final class MGlass {
             float bgR = 0.97f * (1f - dm) + 0.21f * dm;
             float bgG = 0.98f * (1f - dm) + 0.21f * dm;
             float bgB = 1.00f * (1f - dm) + 0.24f * dm;
-            float bgA = (0.90f * (1f - dm) + 0.90f * dm) * lensA;
+            float bgA = (0.72f * (1f - dm) + 0.76f * dm) * lensA;
             rs.setFloatUniform("tintBg", bgR, bgG, bgB, bgA);
             // Messenger blue #0A7CFF (brighter in dark mode)
             rs.setFloatUniform("selColor", 0.04f + 0.22f * dm, 0.49f + 0.13f * dm, 1.0f, 1.0f);

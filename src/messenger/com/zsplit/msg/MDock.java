@@ -27,7 +27,7 @@ final class MDock {
     private static final int ID_META_AI_CONTAINER = 0x7f0b0720;
     private static final int TAG_SCRIM = 0x7a5f0101;
     private static final int TAG_GLASS_HOST = 0x7a5f0102;
-    private static final float TAB_SCALE = 0.88f;
+    private static final float TAB_SCALE = 1.0f;
     private static final WeakHashMap<View, MDrag> sDragMap = new WeakHashMap<>();
     private static final HashMap<Class<?>, Boolean> sIsList = new HashMap<>();
     private static final ViewOutlineProvider sPillOutline = new ViewOutlineProvider() {
@@ -53,13 +53,13 @@ final class MDock {
             // BOTH icons AND Litho text uniformly (0.88x) inside a full-size Liquid Glass capsule!
             FrameLayout glassHost;
             ViewParent curParent = tabBar.getParent();
-            if (curParent instanceof FrameLayout && Integer.valueOf(TAG_GLASS_HOST).equals(((View) curParent).getTag())) {
+            if (curParent instanceof GlassHostLayout && Integer.valueOf(TAG_GLASS_HOST).equals(((View) curParent).getTag())) {
                 glassHost = (FrameLayout) curParent;
             } else if (curParent instanceof ViewGroup) {
                 ViewGroup oldParent = (ViewGroup) curParent;
                 int idx = oldParent.indexOfChild(tabBar);
                 ViewGroup.LayoutParams origLp = tabBar.getLayoutParams();
-                glassHost = new FrameLayout(tabBar.getContext());
+                glassHost = new GlassHostLayout(tabBar.getContext());
                 glassHost.setTag(TAG_GLASS_HOST);
                 glassHost.setWillNotDraw(false);
                 glassHost.setClipChildren(false);
@@ -106,12 +106,12 @@ final class MDock {
                 }
             }
 
-            // Re-assert pill outline & elevation every tick
+            // Re-assert pill outline & subtle elevation (0dp when Vivo hardware glass is active to avoid double-ring shadow)
             if (glassHost.getOutlineProvider() != sPillOutline) {
                 glassHost.setOutlineProvider(sPillOutline);
                 glassHost.invalidateOutline();
             }
-            float wantElev = 10.0f * d;
+            float wantElev = glass.isVivoActive() ? 0f : 8.0f * d;
             if (glassHost.getElevation() != wantElev) {
                 glassHost.setElevation(wantElev);
             }
@@ -122,7 +122,7 @@ final class MDock {
             ViewGroup.LayoutParams lp = glassHost.getLayoutParams();
             if (lp instanceof ViewGroup.MarginLayoutParams) {
                 ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
-                int hMargin = (int) (8.0f * d);
+                int hMargin = (int) (20.0f * d);
                 int tMargin = tabH > 0 ? -(tabH + bMargin) : 0;
                 if (mlp.leftMargin != hMargin || mlp.rightMargin != hMargin
                         || mlp.bottomMargin != bMargin || mlp.topMargin != tMargin) {
@@ -134,12 +134,40 @@ final class MDock {
                 }
             }
 
-            // Attach drag listeners and strip ripple on tab items
-            if (tabBar instanceof ViewGroup) {
-                ViewGroup vg = (ViewGroup) tabBar;
-                int count = vg.getChildCount();
+            // Link MGlass to GlassHostLayout so dispatchTouchEvent handles smooth droplet dragging at any Litho nesting depth
+            if (glassHost instanceof GlassHostLayout) {
+                ((GlassHostLayout) glassHost).glass = glass;
+            }
+
+            // Unwrap Litho wrapper hosts to reach the real 4-button row AND strip Messenger 588's duplicate native dock + native pill!
+            ViewGroup realTabs = glass.tabs();
+            if (realTabs != null) {
+                // Strip native rounded pill background/border on every ancestor from realTabs up to tabBar
+                View anc = realTabs;
+                while (anc != null && anc != glassHost) {
+                    if (anc.getBackground() != null) anc.setBackground(null);
+                    if (anc.getForeground() != null) anc.setForeground(null);
+                    if (anc.getElevation() != 0f) anc.setElevation(0f);
+                    if (anc.getOutlineProvider() != null) anc.setOutlineProvider(null);
+                    stripFullWidthBg(anc);
+                    ViewParent ap = anc.getParent();
+                    // Hide Messenger 588's duplicate native active-indicator sibling overlay (e.g. Child 1 next to realTabs)
+                    if (ap instanceof ViewGroup && anc == realTabs) {
+                        ViewGroup rowParent = (ViewGroup) ap;
+                        for (int s = 0; s < rowParent.getChildCount(); s++) {
+                            View sib = rowParent.getChildAt(s);
+                            if (sib != realTabs) {
+                                if (sib.getVisibility() != View.INVISIBLE) sib.setVisibility(View.INVISIBLE);
+                                if (sib.getAlpha() != 0f) sib.setAlpha(0f);
+                            }
+                        }
+                    }
+                    anc = (ap instanceof View) ? (View) ap : null;
+                }
+
+                int count = realTabs.getChildCount();
                 for (int i = 0; i < count; i++) {
-                    View child = vg.getChildAt(i);
+                    View child = realTabs.getChildAt(i);
                     if (child.getBackground() != null) child.setBackground(null);
                     if (child.getForeground() != null) child.setForeground(null);
                     noRipple(child);
@@ -147,10 +175,30 @@ final class MDock {
                         child.setScaleX(1.0f);
                         child.setScaleY(1.0f);
                     }
-                    if (!sDragMap.containsKey(child)) {
-                        MDrag drag = new MDrag(glass);
-                        child.setOnTouchListener(drag);
-                        sDragMap.put(child, drag);
+                }
+
+                // Sub-pixel vertical centering: Messenger 588's inner icon box has unequal top/bottom padding
+                // (e.g. 13px top vs 26px bottom), making icons sit slightly high inside the glass pill.
+                if (tabH > 0) {
+                    float wantTy = 0f;
+                    View firstTab = MGlass.kid(realTabs, 0);
+                    if (firstTab instanceof ViewGroup && ((ViewGroup) firstTab).getChildCount() > 0) {
+                        View iconBox = ((ViewGroup) firstTab).getChildAt(0);
+                        if (iconBox.getHeight() > 0) {
+                            float iconCy = iconBox.getTop() + iconBox.getHeight() * 0.5f;
+                            View pV = firstTab;
+                            while (pV != null && pV != glassHost) {
+                                iconCy += pV.getTop();
+                                ViewParent pvP = pV.getParent();
+                                pV = (pvP instanceof View) ? (View) pvP : null;
+                            }
+                            wantTy = (tabH * 0.5f) - iconCy;
+                            if (wantTy < -12f * d) wantTy = -12f * d;
+                            if (wantTy > 12f * d) wantTy = 12f * d;
+                        }
+                    }
+                    if (Math.abs(tabBar.getTranslationY() - wantTy) > 0.5f) {
+                        tabBar.setTranslationY(wantTy);
                     }
                 }
             }
@@ -183,6 +231,89 @@ final class MDock {
                 }
             }
         } catch (Throwable ignored) {
+        }
+    }
+
+    private static final class GlassHostLayout extends FrameLayout {
+        MGlass glass;
+        private float downX;
+        private boolean dragging;
+
+        GlassHostLayout(Context ctx) {
+            super(ctx);
+        }
+
+        @Override
+        public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+            MGlass g = this.glass;
+            if (g != null) {
+                try {
+                    int act = ev.getActionMasked();
+                    float rawX = ev.getRawX();
+                    int[] loc = new int[2];
+                    getLocationOnScreen(loc);
+                    float localX = rawX - loc[0];
+
+                    if (act == android.view.MotionEvent.ACTION_DOWN) {
+                        downX = rawX;
+                        dragging = false;
+                        super.dispatchTouchEvent(ev);
+                        return true;
+                    }
+                    if (act == android.view.MotionEvent.ACTION_MOVE) {
+                        if (!dragging) {
+                            float slop = 6f * getResources().getDisplayMetrics().density;
+                            if (Math.abs(rawX - downX) <= slop) {
+                                return super.dispatchTouchEvent(ev);
+                            }
+                            dragging = true;
+                            ViewParent p = getParent();
+                            if (p != null) p.requestDisallowInterceptTouchEvent(true);
+                            android.view.MotionEvent cancel = android.view.MotionEvent.obtain(ev);
+                            cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
+                            super.dispatchTouchEvent(cancel);
+                            cancel.recycle();
+                        }
+                        g.drag = g.posFromX(localX);
+                        invalidate();
+                        return true;
+                    }
+                    if (dragging) {
+                        dragging = false;
+                        float last = g.drag;
+                        g.drag = Float.NaN;
+                        if (act == android.view.MotionEvent.ACTION_UP) {
+                            int idx = Math.round(last);
+                            g.hold = idx;
+                            g.holdT = android.os.SystemClock.uptimeMillis() + 700L;
+                            int curIdx = Math.round(g.activePos());
+                            if (curIdx != idx) {
+                                ViewGroup vg = g.tabs();
+                                if (vg != null) {
+                                    View target = MGlass.kid(vg, idx);
+                                    if (target != null) {
+                                        if (!target.performClick()) {
+                                            float cx = g.scaledCx(target);
+                                            float cy = getHeight() * 0.5f;
+                                            long t = android.os.SystemClock.uptimeMillis();
+                                            android.view.MotionEvent dEv = android.view.MotionEvent.obtain(t, t, android.view.MotionEvent.ACTION_DOWN, cx, cy, 0);
+                                            android.view.MotionEvent uEv = android.view.MotionEvent.obtain(t, t + 10, android.view.MotionEvent.ACTION_UP, cx, cy, 0);
+                                            super.dispatchTouchEvent(dEv);
+                                            super.dispatchTouchEvent(uEv);
+                                            dEv.recycle();
+                                            uEv.recycle();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        invalidate();
+                        return true;
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            return super.dispatchTouchEvent(ev);
         }
     }
 

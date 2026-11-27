@@ -1,15 +1,16 @@
-# Android Duo 2.2
+# Android Duo 2.3
 
-Bộ bản vá giúp các ứng dụng phổ biến **tối ưu toàn diện cho điện thoại gập**: chia đôi màn hình 40/60 tận dụng màn trong rộng, thanh điều hướng nổi **Liquid Glass** (tự động kích hoạt engine kính lỏng phần cứng trên OriginOS và tự fallback sang AGSL shader trên các thiết bị gập khác), chuyển mượt giữa màn ngoài và màn trong.
+Bộ bản vá giúp các ứng dụng phổ biến **tối ưu toàn diện cho điện thoại gập**: chia đôi màn hình 40/60 tận dụng màn trong rộng, thanh điều hướng nổi **Liquid Glass** (tự động kích hoạt engine kính lỏng phần cứng trên OriginOS và tự fallback sang AGSL shader trên các thiết bị gập khác), bộ icon **Liquid Glass kiểu iOS 26** đồng bộ trên toàn bộ ứng dụng, chuyển mượt giữa màn ngoài và màn trong.
 
-| Ứng dụng | Dựa trên | Tải về (v2.2) |
+| Ứng dụng | Dựa trên | Tải về (`v2.3` / mới nhất) |
 |---|---|---|
-| **Zalo Duo** | Zalo 26.11.02 | [ZaloDuo-2.2_26.11.02.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.2/ZaloDuo-2.2_26.11.02.apk) |
-| **YouTube Duo** | YouTube 21.30.216 (Morphe) | [YouTubeDuo-2.2_21.30.216.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.2/YouTubeDuo-2.2_21.30.216.apk) |
-| **Messenger Duo** | Messenger 576.0.0.47.92 | [MessengerDuo-2.2_576.0.0.47.92.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.2/MessengerDuo-2.2_576.0.0.47.92.apk) |
-| **Facebook Duo** | Facebook 588.0.0.42.55 | [FacebookDuo-2.2_588.0.0.42.55.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.2/FacebookDuo-2.2_588.0.0.42.55.apk) |
+| **Zalo Duo** | Zalo `26.11.02` | [ZaloDuo-2.3_26.11.02.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.3/ZaloDuo-2.3_26.11.02.apk) |
+| **Messenger Duo** | Messenger `588.1.0.66.98` | [MessengerDuo-2.3_588.1.0.66.98.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.3/MessengerDuo-2.3_588.1.0.66.98.apk) |
+| **TikTok Duo** | TikTok `48.0.2` | [TikTokDuo-2.3_48.0.2.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.3/TikTokDuo-2.3_48.0.2.apk) |
+| **YouTube Duo** | YouTube `21.30.216` (Morphe `v2.4.0`) | [YouTubeDuo-2.3_21.30.216.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.3/YouTubeDuo-2.3_21.30.216.apk) |
+| **Facebook Duo** | Facebook `588.0.0.42.55` | [FacebookDuo-2.2_588.0.0.42.55.apk](https://github.com/balalala2/AndroidDuo/releases/download/v2.2/FacebookDuo-2.2_588.0.0.42.55.apk) |
 
-Từ bản 2.2, mỗi ứng dụng mang tên riêng **Zalo Duo, YouTube Duo, Messenger Duo, Facebook Duo** để dễ phân biệt với bản gốc.
+Từ bản 2.2, mỗi ứng dụng mang tên riêng **Zalo Duo, Messenger Duo, TikTok Duo, YouTube Duo, Facebook Duo** để dễ phân biệt với bản gốc.
 
 ---
 
@@ -38,10 +39,15 @@ Từ bản 2.2, mỗi ứng dụng mang tên riêng **Zalo Duo, YouTube Duo, Mes
   - Mở ra lại màn trong: bật ngay về **2 cột** với **y nguyên danh sách video và vị trí cuộn cũ**, không còn bị biến thành 1 cột tiêu đề bên phải hay mất video đang định xem.
 - **Dock Liquid Glass nổi**: đồng bộ lò xo & giọt nước theo Zalo, tự hạ gọn ở tab Shorts. Cần MicroG / GmsCore.
 
-### Messenger Duo (`576.0.0.47.92`)
-- **Icon Liquid Glass kiểu iOS 26** (mới trong v2.2).
-- **Chia đôi màn trong 40/60 cho cả Tin nhắn và Cài đặt**: tích hợp `ActivityEmbeddingComponent` gốc của Android để chia đôi cả trang Cài đặt mượt mà.
-- **Dock Liquid Glass toàn vẹn** và tự nâng vị trí nút nổi Meta AI trên mọi tab.
+### Messenger Duo (`588.1.0.66.98`) — Nâng cấp lớn trong v2.3
+- **Nâng nền `576` → `588.1.0.66.98`**: map lại đầy đủ 5 resource ID và 2 hook (`MainActivity->A39`, `LX/0YG->A18`).
+- **Dock Liquid Glass icon-only đồng tâm**: ẩn thanh pill trùng của Messenger 588, viên chọn bo đồng tâm `4dp`, hỗ trợ kéo giọt nước mượt qua 4 tab với ánh sáng xanh `#0A7CFF` và căn giữa chiều dọc chuẩn từng pixel (`translationY`).
+- **Sửa triệt để cập nhật danh sách chat real-time**: khởi tạo `sWide` chuẩn và tự un-hide `main_content_fragment_tag` khi mở màn trong để `InboxLoaderCoordinator` luôn cập nhật tin nhắn đã đọc/trả lời ngay lập tức.
+- **Chia đôi màn trong 40/60 cho cả Tin nhắn và Cài đặt** + tự nâng vị trí nút nổi Meta AI + icon Liquid Glass kiểu iOS 26.
+
+### TikTok Duo (`48.0.2`) — Mới trong v2.3
+- **Chia đôi khung bình luận bên phải (`330dp`) thuần bytecode** (không dùng HushFeed): tự bật trên màn trong (`>= 580dp`), tự thu về chế độ 1 cột mượt khi gập màn ngoài (`com.zsplit.tt.TSplit`).
+- **Icon Liquid Glass kiểu iOS 26**: dựng từ icon gốc iOS App Store, áp quang học kính khói + viền khúc xạ chuẩn Android Adaptive Icon (`resources.arsc` căn lề 4-byte).
 
 ### Facebook Duo (`588.0.0.42.55`)
 - **Icon Liquid Glass kiểu iOS 26** (mới trong v2.2), chữ "f" đúng tỉ lệ bản gốc, viền kính ôm sát bốn cạnh.
@@ -51,6 +57,21 @@ Từ bản 2.2, mỗi ứng dụng mang tên riêng **Zalo Duo, YouTube Duo, Mes
 ---
 
 ## Changelog
+
+### v2.3 — Đồng bộ Liquid Glass iOS 26, TikTok Duo & Messenger 588
+- **Mới — TikTok Duo (`48.0.2`)**:
+  - Bản vá thuần bytecode (không HushFeed): mở khóa chia đôi khung bình luận bên phải (`330dp`) trên màn trong (`LX/06qP`, `LX/065D`, `LX/07Fy`) và quản lý trạng thái gập/mở mượt bằng `com.zsplit.tt.TSplit`.
+  - Bổ sung bộ icon **Liquid Glass kiểu iOS 26** (Adaptive PNG `432×432` + 5 mật độ legacy) giữ nguyên 100% hình dáng nốt nhạc gốc.
+- **Messenger Duo (`588.1.0.66.98`)**:
+  - Nâng cấp từ `576` lên `588.1.0.66.98`, khôi phục bộ icon Liquid Glass iOS 26.
+  - Đại tu thanh Dock cho giao diện icon-only mới của Messenger 588: loại bỏ thanh pill trùng của app gốc, khôi phục hiệu ứng kéo giọt nước qua `GlassHostLayout.dispatchTouchEvent` + `MGlass.findTabRow()`, bo đồng tâm `4dp`, bù căn giữa chiều dọc từng pixel.
+  - Sửa lỗi danh sách hội thoại bên trái thỉnh thoảng bị đóng băng không cập nhật real-time sau khi mở màn trong (`MSplit`: khởi tạo `sWide` + `ensureMainFragmentShown`).
+- **YouTube Duo (`21.30.216`)**:
+  - Nâng nền vá lên **Morphe `v2.4.0`** (128 patches, rút gọn `arm64-v8a` ~110 MB), khôi phục bộ icon Liquid Glass iOS 26 và giữ trọn cơ chế gập/mở không reload `YGlass`/`TabFx`.
+- **Zalo Duo (`26.11.02`)**:
+  - Cập nhật bộ icon **Liquid Glass kiểu iOS 26** (20 PNG trên cả 5 mật độ `mdpi`–`xxxhdpi`), hiệu chỉnh độ trong mờ và ánh xanh kính đồng bộ 1-1 với Messenger & YouTube.
+- **Pipeline tự động hóa (`pipeline/`) & Công cụ icon (`tools/render_liquid_glass_icons.py`)**:
+  - Bổ sung quy trình kiểm tra Morphe, pre-patch, xác minh chứng chỉ/APK và đăng bản nháp GitHub Release (`pipeline/` + `.agents/skills/android-duo-release/`).
 
 ### v2.2 — "Mở ra là xong"
 - **Đổi tên**: các bản vá giờ mang tên **Zalo Duo, YouTube Duo, Messenger Duo, Facebook Duo**; file APK đặt theo dạng `<Tên>Duo-<phiên bản Duo>_<phiên bản gốc>.apk`.
@@ -93,9 +114,10 @@ Từ bản 2.2, mỗi ứng dụng mang tên riêng **Zalo Duo, YouTube Duo, Mes
 
 ## Cài đặt
 ```sh
-adb install -r ZaloDuo-2.2_26.11.02.apk
-adb install -r YouTubeDuo-2.2_21.30.216.apk
-adb install -r MessengerDuo-2.2_576.0.0.47.92.apk
+adb install -r ZaloDuo-2.3_26.11.02.apk
+adb install -r MessengerDuo-2.3_588.1.0.66.98.apk
+adb install -r TikTokDuo-2.3_48.0.2.apk
+adb install -r YouTubeDuo-2.3_21.30.216.apk
 adb install -r FacebookDuo-2.2_588.0.0.42.55.apk
 ```
 - Tất cả APK đều được ký cùng khóa dự án (cert SHA-256 `8c3408403a657900eab0ba56d2a5871b3d9e2eb002bad73f0993f7084f8d21db`), cài đè trực tiếp lên các bản Android Duo trước mà **không mất dữ liệu**.
@@ -108,7 +130,9 @@ src/zalo/       lớp com.zing.zalo.zsplit.* (ZSplit.smali, ZTL.smali, ZGlass.ja
 src/messenger/  lớp com.zsplit.msg.* (MSplit, MDock, MGlass, PrefSplit, TabFx)
 src/facebook/   lớp com.zsplit.fb.* (FSplit, FGlass, TabFx) + compile stubs
 src/youtube/    lớp com.zsplit.yt.* (YGlass, TabFx)
-tools/          công cụ build: RebuildDex, SplitDex, Asm, Verify, Sign, rezip, axml, MergeApk
+src/tiktok/     lớp com.zsplit.tt.* (TSplit)
+pipeline/       quy trình tự động kiểm tra, xác minh APK & phát hành (apps.json, common.ps1, ...)
+tools/          công cụ build & render icon: RebuildDex, SplitDex, Asm, Verify, Sign, rezip, axml, MergeApk, render_liquid_glass_icons.py
 ```
 Hướng dẫn build chi tiết (bao gồm toàn bộ điểm hook bytecode & lệnh dựng trên Windows/Linux cho Antigravity): xem [BUILD.md](BUILD.md).
 

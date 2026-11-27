@@ -1,0 +1,178 @@
+{
+  "project": "Android Duo",
+  "repo": "balalala2/AndroidDuo",
+  "release": {
+    "draft": true,
+    "naming_template": "{display_name}Duo-{release_version}_{version}.apk"
+  },
+  "signing": {
+    "expected_cert_sha256": "8c3408403a657900eab0ba56d2a5871b3d9e2eb002bad73f0993f7084f8d21db",
+    "keystore_relative": "..\\zsplit.jks",
+    "schemes": "v1+v2+v3"
+  },
+  "apps": {
+    "zalo": {
+      "display_name": "Zalo",
+      "package": "com.zing.zalo",
+      "status": "active",
+      "apk_sources": ["apkpure", "apkmirror", "uptodown"],
+      "arch": "arm64-v8a",
+      "split_apk": true,
+      "morphe": {
+        "enabled": true,
+        "required_for_resign": true,
+        "reason": "Pure-bytecode ZNQ stack (Zeldris + Nezumi + Quang) for signature bypass & features — NO NPatch/ZaloXposed (caused voice call exit(1) crash)",
+        "patches_repo": "https://github.com/mnhqngl/quang-patches",
+        "prerelease": false,
+        "extra_local_mpps": [
+          "..\\Antigravity-ZSplit\\zalo-26.11.02\\znq\\zeldris-1.14.0.mpp",
+          "..\\Antigravity-ZSplit\\zalo-26.11.02\\znq\\nezumi-1.7.0.mpp",
+          "..\\Antigravity-ZSplit\\zalo-26.11.02\\quang\\patches-1.1.0.mpp"
+        ],
+        "extra_flags": [
+          "--force",
+          "--continue-on-error",
+          "-e", "Allow Zalo to see Photos (Zalo)",
+          "-O", "photosPackage=com.google.android.apps.photos",
+          "-d", "Change Photos picker package (Zalo)",
+          "-d", "Drive backup via microG",
+          "-d", "microG Drive support"
+        ]
+      },
+      "duo_features": [
+        "iOS 26 Liquid Glass Adaptive Icon across all 5 densities (mdpi..xxxhdpi)",
+        "4-tab smart 40/60 inner-screen split (ZSplit + ZTL)",
+        "Disable Zalo Video (Lovu), keepMainState (hookn0), ContactTab fix (fixcontact), Album Picker fix (PatchFixW)",
+        "Hardware Liquid Glass + AGSL fallback with Zalo blue #0068FF & iconActive (ZGlass)"
+      ],
+      "build_script": "..\\Antigravity-ZSplit\\zalo-26.11.02\\build-zalo-znq.ps1",
+      "obfuscated_hooks": ["Llio;", "Lu1w;", "Lu0k;", "Lvp4;", "Lovu;", "zview.b->n0", "ContactTabZaloView->Y6"],
+      "last_released_version": "26.11.02",
+      "last_released_version_code": 261102931
+    },
+    "messenger": {
+      "display_name": "Messenger",
+      "package": "com.facebook.orca",
+      "status": "active",
+      "apk_sources": ["apkmirror", "apkpure"],
+      "arch": "arm64-v8a",
+      "dpi": "nodpi",
+      "split_apk": false,
+      "morphe": {
+        "enabled": false,
+        "required_for_resign": false,
+        "reason": "Direct re-signable APK"
+      },
+      "duo_features": [
+        "iOS 26 Liquid Glass Adaptive Icon",
+        "40/60 chat + Settings ActivityEmbedding split (MSplit, PrefSplit) with real-time left-pane inbox updates (ensureMainFragmentShown + sWide)",
+        "Icon-only concentric Liquid Glass dock with droplet drag & sub-pixel vertical centering (MDock, MGlass, TabFx)",
+        "Universal Meta AI FAB lift across all tabs"
+      ],
+      "build_script": "..\\Antigravity-ZSplit\\msg-588\\build-msg-588.ps1",
+      "obfuscated_hooks": ["MainActivity->A39", "LX/0YG->A18", "5 remapped resource IDs (0x7f0b12b5, 0x7f0b0c8f, 0x7f0b08f6, 0x7f0b0701, 0x7f0b0af4)"],
+      "last_released_version": "588.1.0.66.98",
+      "last_released_version_code": 347617499
+    },
+    "facebook": {
+      "display_name": "Facebook",
+      "package": "com.facebook.katana",
+      "status": "active",
+      "apk_sources": ["apkmirror", "apkpure"],
+      "arch": "arm64-v8a",
+      "dpi": "nodpi",
+      "split_apk": true,
+      "morphe": {
+        "enabled": false,
+        "required_for_resign": false,
+        "reason": "Direct re-signable APK (merge splits if APKM)"
+      },
+      "duo_features": [
+        "iOS 26 Liquid Glass Adaptive Icon",
+        "Dual-screen adaptive concentric Liquid Glass dock (outer auto-hide pill + inner 54dp vertical rail)",
+        "Home topMargin fix, Profile gray-bar removal, dark #252728 left column",
+        "Hardware-clipped ViewPager & inner-screen Reels tab (FSplit, FGlass, TabFx)"
+      ],
+      "build_script": "..\\Antigravity-ZSplit\\fb\\build-fb.ps1",
+      "obfuscated_hooks": ["Wide-screen / config hook (X.01Bu)"],
+      "last_released_version": "588.0.0.42.55"
+    },
+    "tiktok": {
+      "display_name": "TikTok",
+      "package": "com.zhiliaoapp.musically",
+      "status": "active",
+      "apk_sources": ["apkmirror", "apkpure"],
+      "arch": "arm64-v8a",
+      "dpi": "nodpi",
+      "split_apk": false,
+      "morphe": {
+        "enabled": false,
+        "required_for_resign": false,
+        "reason": "Direct APK — only patch foldable right-pane comment split (no HushFeed needed)"
+      },
+      "duo_features": [
+        "iOS 26 Liquid Glass Adaptive + Legacy Icons (resources.arsc ap9/ap_ PNG swap)",
+        "Right-pane foldable comment split view (330dp) enabled on inner screen (>= 580dp)",
+        "Split container fold/unfold guard (com.zsplit.tt.TSplit)"
+      ],
+      "build_script": "..\\Antigravity-ZSplit\\tiktok-48\\build-tiktok-48.ps1",
+      "obfuscated_hooks": ["LX/06qP;->LIZJ()I", "LX/065D;->LIZ", "LX/07Fy;->LIZ/LIZJ", "com.zsplit.tt.TSplit"],
+      "last_released_version": "48.0.2",
+      "last_released_version_code": 2024800020
+    },
+    "youtube": {
+      "display_name": "YouTube",
+      "package": "com.google.android.youtube",
+      "patched_package": "app.morphe.android.youtube",
+      "status": "active",
+      "apk_sources": ["morphe_prebuilt", "apkmirror"],
+      "arch": "arm64-v8a",
+      "dpi": "nodpi",
+      "split_apk": false,
+      "morphe": {
+        "enabled": true,
+        "prefer_prebuilt_morphe_apk": true,
+        "required_for_resign": true,
+        "reason": "Take pre-built Morphe YouTube APK (or patch via MorpheApp/morphe-patches + GmsCore) FIRST before applying Android Duo / Liquid Glass",
+        "patches_repo": "https://github.com/MorpheApp/morphe-patches",
+        "prerelease": false
+      },
+      "duo_features": [
+        "Morphe v2.4.0 (128 patches, arm64-v8a)",
+        "iOS 26 Liquid Glass Adaptive Icon",
+        "Zero-reload 2-column <-> 1-column fold (always LARGE_FORM_FACTOR=2, no SwipeRefresh)",
+        "Zalo-synced Liquid Glass bottom dock (YGlass, TabFx)"
+      ],
+      "build_script": "..\\Antigravity-ZSplit\\youtube-v2.4\\build-youtube.ps1",
+      "obfuscated_hooks": ["PivotBar->v", "PivotBar->dispatchTouchEvent", "ChangeFormFactorPatch->getUniversalFormFactor"],
+      "last_released_version": "21.30.216",
+      "last_released_version_code": 1561187872
+    },
+    "instagram": {
+      "display_name": "Instagram",
+      "package": "com.instagram.android",
+      "status": "planned",
+      "apk_sources": ["apkmirror", "apkpure"],
+      "arch": "arm64-v8a",
+      "split_apk": true,
+      "morphe": {
+        "enabled": false,
+        "required_for_resign": false
+      },
+      "duo_features": []
+    },
+    "telegram": {
+      "display_name": "Telegram",
+      "package": "org.telegram.messenger",
+      "status": "planned",
+      "apk_sources": ["apkmirror", "apkpure", "telegram_official"],
+      "arch": "arm64-v8a",
+      "split_apk": false,
+      "morphe": {
+        "enabled": false,
+        "required_for_resign": false
+      },
+      "duo_features": []
+    }
+  }
+}

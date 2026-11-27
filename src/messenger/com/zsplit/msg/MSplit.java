@@ -19,6 +19,7 @@ public final class MSplit implements ViewTreeObserver.OnPreDrawListener {
 
     final Activity act;
     boolean forced;
+    boolean unhidePosted;
     View ph;
 
     MSplit(Activity act) {
@@ -27,6 +28,10 @@ public final class MSplit implements ViewTreeObserver.OnPreDrawListener {
 
     public static void install(Activity act) {
         try {
+            Configuration cfg = act.getResources().getConfiguration();
+            if (cfg != null && cfg.screenWidthDp >= 600) {
+                sWide = true;
+            }
             MSplit split = new MSplit(act);
             act.getWindow().getDecorView().getViewTreeObserver().addOnPreDrawListener(split);
             registerCallbacks(act);
@@ -57,7 +62,22 @@ public final class MSplit implements ViewTreeObserver.OnPreDrawListener {
 
     public static boolean keepVisible(Object fragment) {
         try {
-            if (sWide && fragment != null) {
+            if (fragment == null) return false;
+            boolean wide = sWide;
+            if (!wide) {
+                try {
+                    Object res = fragment.getClass().getMethod("getResources").invoke(fragment);
+                    if (res instanceof android.content.res.Resources) {
+                        Configuration cfg = ((android.content.res.Resources) res).getConfiguration();
+                        if (cfg != null && cfg.screenWidthDp >= 600) {
+                            wide = true;
+                            sWide = true;
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            if (wide) {
                 String s = fragment.toString();
                 return s.contains("tag=main_content_fragment_tag")
                         || s.contains("tag=me_preference_fragment");
@@ -65,6 +85,44 @@ public final class MSplit implements ViewTreeObserver.OnPreDrawListener {
         } catch (Throwable ignored) {
         }
         return false;
+    }
+
+    private void ensureMainFragmentShown(View anchor) {
+        if (unhidePosted) return;
+        try {
+            Object fm = act.getClass().getMethod("DCY").invoke(act);
+            if (fm == null) return;
+            Object frag = fm.getClass().getMethod("A0a", String.class).invoke(fm, "main_content_fragment_tag");
+            if (frag == null) return;
+            Object hidden = frag.getClass().getMethod("isHidden").invoke(frag);
+            if (!(hidden instanceof Boolean) || !((Boolean) hidden).booleanValue()) return;
+
+            unhidePosted = true;
+            anchor.post(new Runnable() {
+                @Override
+                public void run() {
+                    unhidePosted = false;
+                    try {
+                        if (!sWide || act.isFinishing() || act.isDestroyed()) return;
+                        Object fm2 = act.getClass().getMethod("DCY").invoke(act);
+                        if (fm2 == null) return;
+                        Object f2 = fm2.getClass().getMethod("A0a", String.class).invoke(fm2, "main_content_fragment_tag");
+                        if (f2 == null) return;
+                        Object h2 = f2.getClass().getMethod("isHidden").invoke(f2);
+                        if (!(h2 instanceof Boolean) || !((Boolean) h2).booleanValue()) return;
+                        Class<?> txCls = Class.forName("X.08j", false, act.getClassLoader());
+                        Object tx = txCls.getConstructor(fm2.getClass()).newInstance(fm2);
+                        Class<?> fragCls = Class.forName("androidx.fragment.app.Fragment", false, act.getClassLoader());
+                        txCls.getMethod("A0M", fragCls).invoke(tx, f2);
+                        txCls.getMethod("A06").invoke(tx);
+                        android.util.Log.i("MSplit", "Un-hid main_content_fragment_tag after unfold -> Inbox real-time resumed");
+                    } catch (Throwable t) {
+                        android.util.Log.w("MSplit", "ensureMainFragmentShown err: " + t);
+                    }
+                }
+            });
+        } catch (Throwable ignored) {
+        }
     }
 
     static boolean isWide(View v) {
@@ -138,6 +196,7 @@ public final class MSplit implements ViewTreeObserver.OnPreDrawListener {
                         mc.setVisibility(View.VISIBLE);
                         forced = true;
                     }
+                    ensureMainFragmentShown(main);
                 } else {
                     forced = false;
                 }
